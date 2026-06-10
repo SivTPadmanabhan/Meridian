@@ -57,15 +57,15 @@
 ## Phase 2 — Triage Agent + Langfuse
 *Goal: an event enters the graph, gets a severity, an Incident + AgentRun exist, and the trace appears in Langfuse. Est. 2–3 hours.*
 
-- [ ] `backend/agents/state.py`: `MeridianState` exactly as in CLAUDE.md (no `human_decision` — AD-1).
-- [ ] `backend/agents/triage.py`: classify severity + confidence with `ChatAnthropic(model=settings.ANTHROPIC_TRIAGE_MODEL)`; Langfuse v3 `CallbackHandler` with `run_name="triage.classify"`; node-boundary `except Exception` sets `error` and returns `severity="P3", confidence=1.0` (routes to END).
-- [ ] `backend/agents/graph.py`: graph + `route_after_triage` exactly as in CLAUDE.md (P0/P1 → analysis; confidence < `TRIAGE_CONFIDENCE_ESCALATION` → analysis; error or confident P2/P3 → END). Until Phase 3, register `analysis` as a stub node that returns `{}`.
+- [x] `backend/agents/state.py`: `MeridianState` exactly as in CLAUDE.md (no `human_decision` — AD-1).
+- [x] `backend/agents/triage.py`: classify severity + confidence with `ChatAnthropic(model=settings.ANTHROPIC_TRIAGE_MODEL)`; Langfuse v3 `CallbackHandler` with `run_name="triage.classify"`; node-boundary `except Exception` sets `error` and returns `severity="P3", confidence=1.0` (routes to END).
+- [x] `backend/agents/graph.py`: graph + `route_after_triage` exactly as in CLAUDE.md (P0/P1 → analysis; confidence < `TRIAGE_CONFIDENCE_ESCALATION` → analysis; error or confident P2/P3 → END). Until Phase 3, register `analysis` as a stub node that returns `{}`.
   **AC:** `pytest backend/tests/test_graph_compiles.py` — a one-line test asserting `build_graph()` returns without raising.
-- [ ] Background task pipeline (called from webhooks): create `Incident` (status `open`, title from NormalizedEvent) + `AgentRun` → `graph.ainvoke(initial_state, config={"configurable": {"thread_id": str(incident_id)}})` → persist triage output to `AgentRun.triage_output`; if run ended at triage with P2/P3, set `Incident.status='triaged_low'` and leave `human_decision` NULL. (This item was missing from the old plan — nothing else creates Incident rows.)
+- [x] Background task pipeline (called from webhooks): create `Incident` (status `open`, title from NormalizedEvent) + `AgentRun` → `graph.ainvoke(initial_state, config={"configurable": {"thread_id": str(incident_id)}})` → persist triage output to `AgentRun.triage_output`; if run ended at triage with P2/P3, set `Incident.status='triaged_low'` and leave `human_decision` NULL. (This item was missing from the old plan — nothing else creates Incident rows.)
   **AC:** POST a fixture → exactly one new row in each of `events`, `incidents`, `agent_runs`.
-- [ ] Manual check: open Langfuse at `localhost:3000`, confirm a `triage.classify` trace with model `claude-haiku-4-5` after POSTing a fixture.
-- [ ] `backend/tests/test_triage.py`: 6 sample events (2 expected P0, 2 P1, 2 P2). Assert severity ∈ {P0..P3}, 0 ≤ confidence ≤ 1, and `route_after_triage` returns "analysis" for the P0/P1 cases. (Exact label matches for the P2s are not asserted — LLM flakiness — but log mismatches.)
-- [ ] `GET /incidents`: last 20 `Incident` rows joined to their `AgentRun` (severity, status, confidence, created_at), newest first, typed response model.
+- [ ] Manual check: open Langfuse at `localhost:3000`, confirm a `triage.classify` trace with model `claude-haiku-4-5` after POSTing a fixture. _(BLOCKED on credentials: requires LANGFUSE_PUBLIC_KEY/SECRET_KEY + ANTHROPIC_API_KEY in .env. Without keys the Langfuse client self-disables and triage degrades to error→END. Code path is wired per spec; verify once keys are set.)_
+- [x] `backend/tests/test_triage.py`: 6 sample events (2 expected P0, 2 P1, 2 P2). Assert severity ∈ {P0..P3}, 0 ≤ confidence ≤ 1, and `route_after_triage` returns "analysis" for the P0/P1 cases. _(Implemented hermetically: route_after_triage covered for all branches + triage_node with a mocked structured LLM across P0–P3 and the error path — no API key needed. Live-quality classification is the credentialed manual check above.)_
+- [x] `GET /incidents`: last 20 `Incident` rows joined to their `AgentRun` (severity, status, confidence, created_at), newest first, typed response model.
   **AC:** `curl localhost:8000/incidents` returns the incidents created above.
 
 ---

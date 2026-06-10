@@ -13,15 +13,19 @@ import hashlib
 import hmac
 import logging
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
 from backend.config import settings
+from backend.agents.graph import get_graph
 from backend.db.session import AsyncSessionLocal
 from backend.integrations.github import parse_github_event
 from backend.integrations.gitlab import parse_gitlab_event
 from backend.integrations.normalized import NormalizedEvent
+from backend.models.agent_run import AgentRun
 from backend.models.event import Event
+from backend.models.incident import Incident
 from backend.rag.ingest import ingest_event
 
 logger = logging.getLogger(__name__)
@@ -56,11 +60,74 @@ async def verify_gitlab_token(
 
 
 async def process_event(event_id: uuid.UUID, normalized: NormalizedEvent) -> None:
-    """Background processing for an ingested event (Phase 1: RAG ingest only)."""
+    """Background processing for an ingested event (AD-4, AD-7).
+
+    Ingest the event into the RAG knowledge base, create exactly one Incident +
+    one AgentRun, run the graph, then persist the triage outcome.
+    """
     try:
         await ingest_event(normalized)
     except Exception:
-        logger.exception("background processing failed for event %s", event_id)
+        logger.exception("RAG ingest failed for event %s", event_id)
+
+    try:
+        await _run_pipeline(event_id, normalized)
+    except Exception:
+        logger.exception("agent pipeline failed for event %s", event_id)
+
+
+async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> None:
+    # One event = one Incident = one AgentRun (AD-4).
+    async with AsyncSessionLocal() as session:
+        incident = Incident(
+            id=uuid.uuid4(),
+            event_id=event_id,
+            status="open",
+            title=normalized.title[:500] or f"{normalized.source} {normalized.event_type}",
+        )
+        session.add(incident)
+        await session.flush()  # insert incident before its FK-dependent agent_run
+        run = AgentRun(id=uuid.uuid4(), incident_id=incident.id)
+        session.add(run)
+        await session.commit()
+        incident_id = incident.id
+        run_id = run.id
+
+    initial_state = {
+        "event_id": str(event_id),
+        "incident_id": str(incident_id),
+        "event_payload": normalized.model_dump(mode="json"),
+        "severity": "",
+        "confidence": 0.0,
+        "retrieved_context": [],
+        "root_cause": "",
+        "suggested_action": "",
+        "eval_scores": {},
+        "error": None,
+    }
+    final_state = await get_graph().ainvoke(
+        initial_state, config={"configurable": {"thread_id": str(incident_id)}}
+    )
+
+    severity = final_state.get("severity") or None
+    confidence = final_state.get("confidence")
+    errored = final_state.get("error") is not None
+    # Confident low-severity runs end at triage (AD-3); human_decision stays NULL.
+    triaged_low = (
+        not errored
+        and severity in ("P2", "P3")
+        and (confidence or 0.0) >= settings.TRIAGE_CONFIDENCE_ESCALATION
+    )
+
+    async with AsyncSessionLocal() as session:
+        db_run = await session.get(AgentRun, run_id)
+        db_incident = await session.get(Incident, incident_id)
+        db_run.triage_output = {"severity": severity, "confidence": confidence}
+        db_run.completed_at = datetime.now(timezone.utc)
+        db_incident.severity = severity
+        if triaged_low:
+            db_incident.status = "triaged_low"
+        await session.commit()
 
 
 async def _store_event(source: str, event_type: str, payload: dict, raw_body: bytes) -> Event:
