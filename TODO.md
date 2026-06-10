@@ -13,22 +13,22 @@
 *Goal: everything boots, nothing crashes. Est. 1–2 hours.*
 
 - [x] Initialize repo: `git init`, add `.gitignore` (Python + Node)
-- [ ] Create `pyproject.toml` with project metadata and dependencies:
+- [x] Create `pyproject.toml` with project metadata and dependencies:
   `fastapi`, `uvicorn[standard]`, `langgraph>=1.0`, `langchain-anthropic>=1.1`, `langchain-openai`, `asyncpg`, `redis`, `langfuse>=3.0`, `ragas>=0.4`, `sentence-transformers>=3.0`, `slack-sdk>=3.33`, `apscheduler>=3.11`, `sqlalchemy[asyncio]>=2.0`, `alembic>=1.14`, `pydantic-settings`, `httpx`; dev extras: `pytest`, `pytest-asyncio`, `ruff`, `mypy`.
   **Do NOT install:** `llama-index` (cut — AD-5), `psycopg2-binary` (async engine only), `langchain` meta-package.
   **AC:** `pip install -e ".[dev]"` succeeds; `python -c "import langgraph, langfuse, ragas"` exits 0.
-- [ ] Write `docker-compose.yml` with services: `postgres` (`pgvector/pgvector:0.8.2-pg17`, init script creates databases `meridian` and `langfuse`), `redis` (redis:7), `clickhouse`, `minio`, `langfuse-web` (port 3000), `langfuse-worker`. Base the Langfuse v3 service block on the official Langfuse docker-compose (v3 requires ClickHouse + MinIO; a two-service v2 layout will not boot).
+- [x] Write `docker-compose.yml` with services: `postgres` (`pgvector/pgvector:0.8.2-pg17`, init script creates databases `meridian` and `langfuse`), `redis` (redis:7), `clickhouse`, `minio`, `langfuse-web` (port 3000), `langfuse-worker`. Base the Langfuse v3 service block on the official Langfuse docker-compose (v3 requires ClickHouse + MinIO; a two-service v2 layout will not boot).
   **AC:** `docker compose up -d` → all services healthy; Langfuse login page loads at `http://localhost:3000`.
-- [ ] Write `.env.example` with every key from CLAUDE.md → Environment Variables (no values).
+- [x] Write `.env.example` with every key from CLAUDE.md → Environment Variables (no values).
   **AC:** every `settings.` attribute referenced in code exists in `.env.example`.
-- [ ] Create `backend/config.py` with `pydantic_settings.BaseSettings` loading `.env`, including `ANTHROPIC_TRIAGE_MODEL`, `ANTHROPIC_ANALYSIS_MODEL`, `OPENAI_JUDGE_MODEL`, `TRIAGE_CONFIDENCE_ESCALATION`, `EMBEDDING_MODEL`, `EMBEDDING_DIM`.
+- [x] Create `backend/config.py` with `pydantic_settings.BaseSettings` loading `.env`, including `ANTHROPIC_TRIAGE_MODEL`, `ANTHROPIC_ANALYSIS_MODEL`, `OPENAI_JUDGE_MODEL`, `TRIAGE_CONFIDENCE_ESCALATION`, `EMBEDDING_MODEL`, `EMBEDDING_DIM`.
   **AC:** `python -c "from backend.config import settings; print(settings.ANTHROPIC_TRIAGE_MODEL)"` prints `claude-haiku-4-5`.
-- [ ] Write `backend/db/session.py`: async engine + `async_sessionmaker` + `get_db` dependency (pattern in CLAUDE.md).
-- [ ] Write the four SQLAlchemy models exactly per PRODUCT.md → Data Models: `Event`, `Incident` (status enum: open/triaged_low/approved/dismissed/resolved; `event_id` unique FK), `AgentRun` (`human_decision` nullable), `EvalResult` (`eval_type`, nullable `agent_run_id`, nullable `context_precision`/`factual_correctness`, `judge_model`).
-- [ ] `alembic init -t async alembic`; configure `env.py` for the async engine and model metadata.
-- [ ] Initial migration: all four tables + `CREATE EXTENSION IF NOT EXISTS vector` + `document_chunks` table (`id`, `source`, `content text`, `embedding vector(384)`, `created_at`).
+- [x] Write `backend/db/session.py`: async engine + `async_sessionmaker` + `get_db` dependency (pattern in CLAUDE.md).
+- [x] Write the four SQLAlchemy models exactly per PRODUCT.md → Data Models: `Event`, `Incident` (status enum: open/triaged_low/approved/dismissed/resolved; `event_id` unique FK), `AgentRun` (`human_decision` nullable), `EvalResult` (`eval_type`, nullable `agent_run_id`, nullable `context_precision`/`factual_correctness`, `judge_model`).
+- [x] `alembic init -t async alembic`; configure `env.py` for the async engine and model metadata.
+- [x] Initial migration: all four tables + `CREATE EXTENSION IF NOT EXISTS vector` + `document_chunks` table (`id`, `source`, `content text`, `embedding vector(384)`, `created_at`).
   **AC:** `alembic upgrade head` succeeds; `docker compose exec postgres psql -U meridian -d meridian -c "\dt"` lists all five tables.
-- [ ] `GET /health`: `SELECT 1` on Postgres, `PING` on Redis, HTTP GET on `LANGFUSE_HOST`.
+- [x] `GET /health`: `SELECT 1` on Postgres, `PING` on Redis, HTTP GET on `LANGFUSE_HOST`.
   **AC:** `curl localhost:8000/health` returns `{"status":"ok","db":true,"redis":true,"langfuse":true}`.
 
 ---
@@ -84,6 +84,13 @@
 
 ## Phase 3.5 — Online Eval Node
 *Goal: every analyzed run carries its own quality scores. Est. 1 hour. (Online half of AD-2.)*
+
+> **NOTE (RAGAS import path, applies to Phase 3.5 + Phase 4):** On the Phase 0 env (ragas 0.4.3),
+> `from ragas.metrics import Faithfulness, ResponseRelevancy` (the path in CLAUDE.md) still works
+> but emits a DeprecationWarning: these move to `ragas.metrics.collections` in ragas v1.0
+> (e.g. `from ragas.metrics.collections import Faithfulness`). Same applies to `ContextPrecision`
+> / `FactualCorrectness` in Phase 4. Decide whether to adopt the new path when implementing these
+> nodes; if so, update CLAUDE.md → Eval section to match.
 
 - [ ] `backend/agents/eval_agent.py`: build a one-row RAGAS `EvaluationDataset` from state (`user_input` = event summary, `retrieved_contexts` = `retrieved_context`, `response` = `root_cause`); score `Faithfulness()` + `ResponseRelevancy()` with judge `LangchainLLMWrapper(ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL))`; store `EvalResult(eval_type='online', agent_run_id=..., hallucination_rate=1-faithfulness, judge_model=...)`; `run_name="eval.score"`. On ANY failure: `logger.warning`, return `{"eval_scores": {}}` — never crash the pipeline.
 - [ ] Wire `action → eval → END` in the graph.

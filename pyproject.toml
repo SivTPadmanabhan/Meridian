@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meridian"
+version = "0.1.0"
+description = "Multi-agent enterprise operations intelligence platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]",
+    "langgraph>=1.0",
+    "langchain-anthropic>=1.1",
+    "langchain-openai",
+    # ragas 0.4.3 eagerly imports langchain_community.chat_models.vertexai, which
+    # was removed in langchain-community 0.4.x. The 0.3.x line still ships it and
+    # is compatible with langchain-core 1.x — pin below 0.4 until ragas drops the
+    # hard vertexai import.
+    "langchain-community<0.4",
+    "asyncpg",
+    "redis",
+    "langfuse>=3.0",
+    "ragas>=0.4",
+    "sentence-transformers>=3.0",
+    "slack-sdk>=3.33",
+    "apscheduler>=3.11",
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.14",
+    "pydantic-settings",
+    "pgvector",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+]
+
+[tool.setuptools.packages.find]
+include = ["backend*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["backend/tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+disallow_untyped_defs = true
