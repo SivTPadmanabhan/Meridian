@@ -73,12 +73,12 @@
 ## Phase 3 — Analysis + Action Agents
 *Goal: a P0/P1 event produces a root cause and a stored pending proposal. Est. 2–3 hours.*
 
-- [ ] `backend/agents/analysis.py`: retrieve top-5 similar chunks (`run_name="analysis.retrieve"` span), build context (3,000-token guard per CLAUDE.md), root-cause call on `ChatAnthropic(model=settings.ANTHROPIC_ANALYSIS_MODEL)` with `run_name="analysis.reason"`. Returns `{"retrieved_context": [...], "root_cause": "..."}`.
-- [ ] `backend/agents/action.py`: produce one concrete `suggested_action` (`run_name="action.propose"`, Sonnet); persist `analysis_output` + `action_proposed` to `AgentRun`; set `human_decision='pending'`. (Slack send is added in Phase 5 — leave a single clearly-marked call site.)
-- [ ] Wire real `analysis` and `action` nodes into the graph (replacing the Phase 2 stub): `analysis → action`, and `action → eval` once Phase 3.5 lands (until then `action → END`).
-- [ ] `backend/tests/test_analysis.py`: seed 5 historical incident embeddings, run the analysis node on a CI-failure state, assert `root_cause` is a non-empty string and `retrieved_context` is non-empty.
-- [ ] Integration test: POST `github_ci_failure.json` (a P0/P1-shaped event), poll `GET /incidents` until the run completes.
-  **AC:** the incident's `AgentRun` has non-null `analysis_output`, `action_proposed`, and `human_decision='pending'`.
+- [x] `backend/agents/analysis.py`: retrieve top-5 similar chunks (`run_name="analysis.retrieve"` span), build context (3,000-token guard per CLAUDE.md), root-cause call on `ChatAnthropic(model=settings.ANTHROPIC_ANALYSIS_MODEL)` with `run_name="analysis.reason"`. Returns `{"retrieved_context": [...], "root_cause": "..."}`.
+- [x] `backend/agents/action.py`: produce one concrete `suggested_action` (`run_name="action.propose"`, Sonnet); persist `analysis_output` + `action_proposed` to `AgentRun`; set `human_decision='pending'`. (Slack send is added in Phase 5 — leave a single clearly-marked call site.)
+- [x] Wire real `analysis` and `action` nodes into the graph (replacing the Phase 2 stub): `analysis → action`, and `action → eval` once Phase 3.5 lands (until then `action → END`).
+- [x] `backend/tests/test_analysis.py`: seed 5 historical incident embeddings, run the analysis node on a CI-failure state, assert `root_cause` is a non-empty string and `retrieved_context` is non-empty.
+- [x] Integration test: POST `github_ci_failure.json` (a P0/P1-shaped event), poll `GET /incidents` until the run completes.
+  **AC:** the incident's `AgentRun` has non-null `analysis_output`, `action_proposed`, and `human_decision='pending'`. _(Covered hermetically by test_full_pipeline_to_pending_proposal — triage/analysis/action LLMs mocked, retrieval real. Live polling needs ANTHROPIC_API_KEY; without it triage errors→END before analysis.)_
 
 ---
 
