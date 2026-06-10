@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from backend.config import settings
 from backend.db.session import engine
+from backend.routes import webhooks
 
 logging.basicConfig(level=settings.LOG_LEVEL)
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Meridian", version="0.1.0", lifespan=lifespan)
+app.include_router(webhooks.router)
 
 
 class HealthResponse(BaseModel):

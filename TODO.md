@@ -36,20 +36,20 @@
 ## Phase 1 — Ingest Pipeline
 *Goal: a GitHub event hits the webhook, gets normalized, embedded, and stored in pgvector. Est. 2–3 hours.*
 
-- [ ] `backend/integrations/github.py`: parse `push`, `pull_request`, `check_run` payloads into a `NormalizedEvent` Pydantic model (`source`, `event_type`, `repo`, `title`, `body_text`, `occurred_at`, `raw`).
-- [ ] `backend/integrations/gitlab.py`: parse `pipeline` and `job` payloads into the same `NormalizedEvent`.
+- [x] `backend/integrations/github.py`: parse `push`, `pull_request`, `check_run` payloads into a `NormalizedEvent` Pydantic model (`source`, `event_type`, `repo`, `title`, `body_text`, `occurred_at`, `raw`).
+- [x] `backend/integrations/gitlab.py`: parse `pipeline` and `job` payloads into the same `NormalizedEvent`.
   **AC (both):** unit test feeds each fixture file and asserts every `NormalizedEvent` field is populated.
-- [ ] `POST /webhooks/github`: signature dependency validates `X-Hub-Signature-256` (HMAC-SHA256 of raw body with `GITHUB_WEBHOOK_SECRET`); handler stores raw `Event`, schedules background processing, returns 200 **before** any LLM work (AD-7). Invalid signature → 401.
-- [ ] `POST /webhooks/gitlab`: same pattern with `X-Gitlab-Token` equality check.
-- [ ] `backend/rag/embedder.py`: module-level `SentenceTransformer(settings.EMBEDDING_MODEL)`; `async def embed(text: str) -> list[float]` via `asyncio.to_thread`.
+- [x] `POST /webhooks/github`: signature dependency validates `X-Hub-Signature-256` (HMAC-SHA256 of raw body with `GITHUB_WEBHOOK_SECRET`); handler stores raw `Event`, schedules background processing, returns 200 **before** any LLM work (AD-7). Invalid signature → 401.
+- [x] `POST /webhooks/gitlab`: same pattern with `X-Gitlab-Token` equality check.
+- [x] `backend/rag/embedder.py`: module-level `SentenceTransformer(settings.EMBEDDING_MODEL)`; `async def embed(text: str) -> list[float]` via `asyncio.to_thread`.
   **AC:** `len(await embed("hello")) == 384`.
-- [ ] `backend/rag/ingest.py`: NormalizedEvent → chunk text (~500 chars, no mid-word splits) → embed → upsert `document_chunks`. Include `--seed` CLI that ingests `backend/tests/fixtures/seed_incidents.jsonl`.
-- [ ] `backend/rag/retriever.py`: `async def retrieve(query: str, k: int = 5) -> list[str]` — embed query, cosine search (`embedding <=> $1` ordered ascending), return chunk texts.
-- [ ] Redis cache in retriever — caches the **query embedding only**: key `sha256(query_text).hexdigest()`, value JSON list of floats, TTL `REDIS_CACHE_TTL`. Cache hit skips the encoder; pgvector search always runs. Log `cache_hit=true|false` as a structured field.
-- [ ] Fixtures: `backend/tests/fixtures/github_push.json`, `github_ci_failure.json`, `gitlab_pipeline.json`, `seed_incidents.jsonl` (10 short historical incidents), and `send_fixture.py` (computes HMAC, POSTs to localhost).
-- [ ] `backend/tests/test_webhooks.py`: POST each fixture with a valid signature → 200 + Event row created; invalid signature → 401, no row.
-- [ ] `backend/tests/test_retriever.py`: seed 10 embeddings, query for a known topic, assert the matching doc is in the top-3.
-- [ ] Smoke test.
+- [x] `backend/rag/ingest.py`: NormalizedEvent → chunk text (~500 chars, no mid-word splits) → embed → upsert `document_chunks`. Include `--seed` CLI that ingests `backend/tests/fixtures/seed_incidents.jsonl`.
+- [x] `backend/rag/retriever.py`: `async def retrieve(query: str, k: int = 5) -> list[str]` — embed query, cosine search (`embedding <=> $1` ordered ascending), return chunk texts.
+- [x] Redis cache in retriever — caches the **query embedding only**: key `sha256(query_text).hexdigest()`, value JSON list of floats, TTL `REDIS_CACHE_TTL`. Cache hit skips the encoder; pgvector search always runs. Log `cache_hit=true|false` as a structured field.
+- [x] Fixtures: `backend/tests/fixtures/github_push.json`, `github_ci_failure.json`, `gitlab_pipeline.json`, `seed_incidents.jsonl` (10 short historical incidents), and `send_fixture.py` (computes HMAC, POSTs to localhost).
+- [x] `backend/tests/test_webhooks.py`: POST each fixture with a valid signature → 200 + Event row created; invalid signature → 401, no row.
+- [x] `backend/tests/test_retriever.py`: seed 10 embeddings, query for a known topic, assert the matching doc is in the top-3.
+- [x] Smoke test.
   **AC:** `python backend/tests/fixtures/send_fixture.py github_ci_failure.json` → `document_chunks` count increases (verify with the psql command in CLAUDE.md → Database).
 
 ---

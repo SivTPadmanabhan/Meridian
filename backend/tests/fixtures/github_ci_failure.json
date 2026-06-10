@@ -1,0 +1,18 @@
+{
+  "action": "completed",
+  "repository": {
+    "full_name": "acme/checkout-service",
+    "name": "checkout-service"
+  },
+  "check_run": {
+    "name": "integration-tests",
+    "status": "completed",
+    "conclusion": "failure",
+    "started_at": "2026-06-09T14:25:00Z",
+    "completed_at": "2026-06-09T14:31:12Z",
+    "output": {
+      "title": "3 tests failed",
+      "summary": "test_payment_capture failed: ConnectionTimeout to payments-gateway after 30s. test_refund_flow failed: 503 from payments-gateway. Likely the payment SDK 4.2.0 bump changed the default timeout and the gateway is rejecting connections."
+    }
+  }
+}

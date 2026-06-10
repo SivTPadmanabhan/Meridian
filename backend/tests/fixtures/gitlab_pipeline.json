@@ -1,0 +1,23 @@
+{
+  "object_kind": "pipeline",
+  "object_attributes": {
+    "id": 84421,
+    "ref": "main",
+    "status": "failed",
+    "created_at": "2026-06-09 14:25:00 UTC",
+    "finished_at": "2026-06-09 14:33:40 UTC"
+  },
+  "project": {
+    "name": "billing-api",
+    "path_with_namespace": "acme/billing-api"
+  },
+  "commit": {
+    "id": "7c3d9e2",
+    "message": "Migrate invoice schema: add tax_region column"
+  },
+  "builds": [
+    { "name": "unit-tests", "status": "success" },
+    { "name": "db-migrate", "status": "failed" },
+    { "name": "deploy-staging", "status": "skipped" }
+  ]
+}

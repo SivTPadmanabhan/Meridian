@@ -1,0 +1,17 @@
+{
+  "ref": "refs/heads/main",
+  "pusher": { "name": "alex-devops", "email": "alex@example.com" },
+  "repository": {
+    "full_name": "acme/checkout-service",
+    "name": "checkout-service"
+  },
+  "head_commit": {
+    "id": "9f2c1ab",
+    "message": "Bump payment SDK to 4.2.0",
+    "timestamp": "2026-06-09T14:22:31Z"
+  },
+  "commits": [
+    { "id": "9f2c1ab", "message": "Bump payment SDK to 4.2.0" },
+    { "id": "1d4e7bc", "message": "Update lockfile" }
+  ]
+}
