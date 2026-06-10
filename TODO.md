@@ -92,10 +92,10 @@
 > / `FactualCorrectness` in Phase 4. Decide whether to adopt the new path when implementing these
 > nodes; if so, update CLAUDE.md → Eval section to match.
 
-- [ ] `backend/agents/eval_agent.py`: build a one-row RAGAS `EvaluationDataset` from state (`user_input` = event summary, `retrieved_contexts` = `retrieved_context`, `response` = `root_cause`); score `Faithfulness()` + `ResponseRelevancy()` with judge `LangchainLLMWrapper(ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL))`; store `EvalResult(eval_type='online', agent_run_id=..., hallucination_rate=1-faithfulness, judge_model=...)`; `run_name="eval.score"`. On ANY failure: `logger.warning`, return `{"eval_scores": {}}` — never crash the pipeline.
-- [ ] Wire `action → eval → END` in the graph.
-- [ ] `backend/tests/test_eval_node.py`: run the node with a stubbed judge (monkeypatched `evaluate`) → `EvalResult` row with `eval_type='online'`, scores in [0,1]; and with a judge that raises → no exception escapes, `eval_scores == {}`.
-  **AC:** integration run from Phase 3 now also produces one `eval_results` row with `eval_type='online'`.
+- [x] `backend/agents/eval_agent.py`: build a one-row RAGAS `EvaluationDataset` from state (`user_input` = event summary, `retrieved_contexts` = `retrieved_context`, `response` = `root_cause`); score `Faithfulness()` + `ResponseRelevancy()` with judge `LangchainLLMWrapper(ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL))`; store `EvalResult(eval_type='online', agent_run_id=..., hallucination_rate=1-faithfulness, judge_model=...)`; `run_name="eval.score"`. On ANY failure: `logger.warning`, return `{"eval_scores": {}}` — never crash the pipeline.
+- [x] Wire `action → eval → END` in the graph.
+- [x] `backend/tests/test_eval_node.py`: run the node with a stubbed judge (monkeypatched `evaluate`) → `EvalResult` row with `eval_type='online'`, scores in [0,1]; and with a judge that raises → no exception escapes, `eval_scores == {}`.
+  **AC:** integration run from Phase 3 now also produces one `eval_results` row with `eval_type='online'`. _(Covered by test_full_pipeline_to_pending_proposal, which now stubs the RAGAS judge and asserts one online eval_results row. Live scoring needs OPENAI_API_KEY.)_
 
 ---
 

@@ -1,7 +1,6 @@
 """Graph topology + routing.
 
-Phase 3: triage → route_after_triage → {analysis | END}; analysis → action → END.
-Phase 3.5 inserts action → eval → END.
+triage → route_after_triage → {analysis | END}; analysis → action → eval → END.
 """
 
 from langgraph.graph import START, END, StateGraph
@@ -13,6 +12,7 @@ from backend.agents.state import MeridianState
 from backend.agents.triage import triage_node
 from backend.agents.analysis import analysis_node
 from backend.agents.action import action_node
+from backend.agents.eval_agent import eval_node
 
 _graph: CompiledStateGraph | None = None
 
@@ -33,12 +33,14 @@ def build_graph() -> CompiledStateGraph:
     graph.add_node("triage", triage_node)
     graph.add_node("analysis", analysis_node)
     graph.add_node("action", action_node)
+    graph.add_node("eval", eval_node)
     graph.add_edge(START, "triage")
     graph.add_conditional_edges(
         "triage", route_after_triage, {"analysis": "analysis", END: END}
     )
     graph.add_edge("analysis", "action")
-    graph.add_edge("action", END)
+    graph.add_edge("action", "eval")
+    graph.add_edge("eval", END)
     return graph.compile(checkpointer=MemorySaver())
 
 

@@ -8,12 +8,15 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
-from backend.agents import action, analysis, triage
+import pandas as pd
+
+from backend.agents import action, analysis, eval_agent, triage
 from backend.agents.analysis import analysis_node
 from backend.agents.triage import TriageClassification
 from backend.config import settings
 from backend.db.session import AsyncSessionLocal
 from backend.models.agent_run import AgentRun
+from backend.models.eval_result import EvalResult
 from backend.rag import ingest
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -83,6 +86,13 @@ async def test_full_pipeline_to_pending_proposal(monkeypatch, client, clean_db) 
     )
     monkeypatch.setattr(analysis, "_get_llm", lambda: _FakeChat("Root cause: SDK timeout bump."))
     monkeypatch.setattr(action, "_get_llm", lambda: _FakeChat("Pin the SDK and set timeout=60."))
+    # Online eval (Phase 3.5): stub the RAGAS judge so the run also scores itself.
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test")
+    _df = pd.DataFrame([{"faithfulness": 0.85, "answer_relevancy": 0.9}])
+    monkeypatch.setattr(
+        eval_agent, "evaluate",
+        lambda **kw: type("R", (), {"to_pandas": lambda self: _df})(),
+    )
 
     body = (FIXTURES / "github_ci_failure.json").read_bytes()
     resp = await client.post(
@@ -94,7 +104,12 @@ async def test_full_pipeline_to_pending_proposal(monkeypatch, client, clean_db) 
 
     async with AsyncSessionLocal() as s:
         run = (await s.execute(select(AgentRun))).scalar_one()
+        evals = (await s.execute(select(EvalResult))).scalars().all()
     assert run.analysis_output is not None
     assert run.analysis_output["root_cause"] == "Root cause: SDK timeout bump."
     assert run.action_proposed == {"suggested_action": "Pin the SDK and set timeout=60."}
     assert run.human_decision == "pending"
+    # AC: the analyzed run also produced exactly one online eval row.
+    assert len(evals) == 1
+    assert evals[0].eval_type == "online"
+    assert evals[0].agent_run_id == run.id
