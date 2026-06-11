@@ -208,6 +208,22 @@ Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a La
 - [ ] Helm chart wrapping the manifests. **AC:** `helm template` renders without error.
 - [ ] k6 load test: 100 VUs, 60 s. **AC:** P95 `/webhooks/github` < 500 ms and P95 `analysis.retrieve` span < 2,000 ms.
 
+### Security hardening
+*Standing rules in CLAUDE.md → Security Guardrails; this is where they get implemented. Do not weaken AD-1 (human approval) or AD-6 (independent judge) — they are load-bearing security controls.*
+
+- [ ] Secret scanning: add `gitleaks` (or `detect-secrets`) as a pre-commit hook **and** a CI stage.
+  **AC:** committing a fake `sk-ant-...`-shaped string is blocked locally and fails CI.
+- [ ] Dependency audits in CI: `pip-audit` (backend) + `npm audit --audit-level=high` (frontend), as a `security` stage in `.gitlab-ci.yml`.
+  **AC:** a known-vulnerable pin fails the stage; a clean tree passes.
+- [ ] Inbound rate limiting via `slowapi` backed by Redis (`storage_uri=settings.REDIS_URL`): **generous** per-IP limits on `/webhooks/github|gitlab` (never 429 a valid signed webhook — providers disable the hook), **tighter** limits on `POST /incidents/{id}/approve` and `/webhooks/slack/actions`. Return `429` with `Retry-After` on human endpoints only.
+  **AC:** a burst on `/incidents/{id}/approve` gets 429; a signed webhook burst still 200s.
+- [ ] Outbound LLM throttle: bound graph/LLM concurrency with an `asyncio.Semaphore` (config `LLM_MAX_CONCURRENCY`) + retry-with-backoff on provider `429`/`5xx` (tenacity or SDK retry config). Wire the semaphore in `agents/graph.py` invocation, not per-node.
+  **AC:** firing 50 webhooks concurrently never exceeds N in-flight Anthropic calls (assert via a Langfuse/log counter).
+- [ ] Request-size & timeout limits: cap webhook body size (reject oversized payloads with 413) and set client/server timeouts so a huge or slow payload can't exhaust resources.
+  **AC:** a payload over the cap returns 413 and stores nothing.
+- [ ] Container hardening: app image runs as a non-root user; Postgres/Redis/ClickHouse/MinIO stay on the internal Docker network (no host port exposure beyond what dev needs).
+  **AC:** `docker compose exec app whoami` is not `root`.
+
 ---
 
 ## Ongoing — instrument from day one (wired during Phases 1–5)

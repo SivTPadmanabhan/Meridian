@@ -557,6 +557,35 @@ LOG_LEVEL=INFO
 
 ---
 
+## Security Guardrails (standing rules — apply in every phase)
+
+These are settled defenses; treat them like the Architecture Decisions. Most *implementation* is scheduled in TODO → Phase 8 (Security hardening), but the **standards below apply to all code written now**.
+
+**Secrets & config**
+- `backend/config.py` is the single env chokepoint — never read `os.environ` elsewhere, never hardcode keys/URLs (already enforced). `.env` stays gitignored; only `.env.example` (no values) is committed.
+- Never log secrets or raw webhook bodies that may carry tokens. `logger.exception` at node/eval boundaries is fine — log identifiers (`event_id`, `incident_id`), not payloads.
+- A secret-scanning pre-commit hook (`gitleaks` or `detect-secrets`) is required — see Phase 8.
+
+**Webhook & request authenticity (already correct — preserve exactly)**
+- GitHub HMAC-SHA256, GitLab token, and Slack `v0` signatures all compare with `hmac.compare_digest` (constant-time); Slack rejects requests older than 5 minutes. Validation lives in the FastAPI dependency / handler guard, never deferred into business logic.
+- Bad signature → `401` and store nothing. (Exception: a *valid-but-unprocessable* GitHub/GitLab event still returns 200 per AD-7 so the hook isn't disabled — authenticity is the gate, not processability.)
+
+**Injection & untrusted input**
+- SQL is **bound parameters only.** The hand-rolled RAG layer (asyncpg in `rag/retriever.py` + `rag/ingest.py`) uses `$1/$2/$3` placeholders — verified, no f-string interpolation. Any new raw SQL must do the same. SQLAlchemy 2.0 already parameterizes.
+- Pydantic v2 validates every request/response shape — no raw `dict` crosses an API boundary.
+- **Treat webhook content and retrieved RAG chunks as untrusted prompt input** (prompt-injection surface). The defense is structural: AD-1's human-approval gate means no proposed action is ever auto-executed, and the independent OpenAI judge (AD-6) never lets Claude grade itself. **Never weaken either** — do not add auto-approval, and do not bypass the judge.
+
+**Network & surface**
+- Keep Postgres/Redis/ClickHouse/MinIO on the internal Docker network; the app container runs as non-root (Phase 8).
+- The RSC frontend fetches FastAPI **server-side** — the browser never calls the API directly, so there is no CORS need. Never add a permissive `allow_origins=["*"]` later.
+- Dependency audits (`pip-audit`, `npm audit`) run in CI (Phase 8).
+
+**Rate limiting & cost-DoS** (see Phase 8 for implementation)
+- Inbound: per-IP DoS limits via `slowapi` backed by the existing Redis. Limits must be **generous on `/webhooks/github|gitlab`** (a 429 makes providers disable the hook — signatures are the real gate there) and **tighter on human endpoints** like `POST /incidents/{id}/approve` and `/webhooks/slack/actions`.
+- Outbound: bound LLM concurrency with an `asyncio.Semaphore` so a webhook burst can't fan out into hundreds of Sonnet calls, plus retry-with-backoff on provider `429`/`5xx`. AD-6's Haiku-triage gate already throttles expensive reasoning; Langfuse cost-per-trace is the alerting signal for the ~$0.04/incident target.
+
+---
+
 ## Definition of Done (for any feature)
 
 A feature is complete when:
