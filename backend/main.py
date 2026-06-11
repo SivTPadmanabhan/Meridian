@@ -17,6 +17,7 @@ from sqlalchemy import text
 
 from backend.config import settings
 from backend.db.session import engine
+from backend.routes import eval as eval_routes
 from backend.routes import incidents, webhooks
 
 logging.basicConfig(level=settings.LOG_LEVEL)
@@ -26,12 +27,20 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Build the compiled LangGraph once at startup (reused by all background runs).
-    # Phase 4: start the APScheduler weekly offline-eval job (APP_ENV != "test").
     from backend.agents.graph import get_graph
 
     get_graph()
+
+    scheduler = None
+    if settings.APP_ENV != "test":
+        from backend.eval.scheduler import start_scheduler
+
+        scheduler = start_scheduler()
+
     logger.info("Meridian starting up (env=%s)", settings.APP_ENV)
     yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
     await engine.dispose()
     logger.info("Meridian shut down")
 
@@ -39,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(title="Meridian", version="0.1.0", lifespan=lifespan)
 app.include_router(webhooks.router)
 app.include_router(incidents.router)
+app.include_router(eval_routes.router)
 
 
 class HealthResponse(BaseModel):

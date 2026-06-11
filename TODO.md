@@ -102,23 +102,37 @@
 ## Phase 4 — Offline RAGAS Harness ← do this before you are tired
 *Goal: a scored offline eval run completes and stores to DB. Est. 3–4 hours. (Offline half of AD-2.)*
 
-- [ ] Write 50 labeled QA pairs in `backend/eval/ground_truth.jsonl`, one JSON object per line:
+- [x] Write 50 labeled QA pairs in `backend/eval/ground_truth.jsonl`, one JSON object per line:
   `{"question": "...", "answer": "...", "contexts": ["..."], "incident_type": "ci_failure|pr_stale|deploy_regression|edge_case"}`
   At least 15 CI failures, 15 PR scenarios, 10 deploy regressions, 10 edge cases. Write real ones — not AI-generated throwaways. These are your north star.
-  **AC:** `python -c "import json,sys; [json.loads(l) for l in open('backend/eval/ground_truth.jsonl')]"` exits 0 and the line count is ≥ 50.
-- [ ] `backend/eval/harness.py`:
+  **AC:** `python -c "import json,sys; [json.loads(l) for l in open('backend/eval/ground_truth.jsonl')]"` exits 0 and the line count is ≥ 50. _(56 pairs — sourced from real human-authored Stack Exchange Q&A (CC-BY-SA) via `backend/eval/build_ground_truth.py`; NOT AI-authored. `pr_stale` holds code-review questions, the closest real PR data. See README attribution.)_
+- [x] `backend/eval/harness.py`:
   - Load ground truth; for each pair: run the retriever, run the analysis prompt path, build a RAGAS sample (`user_input`, `retrieved_contexts`, `response`, `reference`=answer).
   - Score with `Faithfulness()`, `ResponseRelevancy()`, `ContextPrecision()`, `FactualCorrectness()`; judge = `LangchainLLMWrapper(ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL))`.
   - Store one `EvalResult` per pair: `eval_type='offline'`, `agent_run_id=NULL`, `hallucination_rate=1-faithfulness`, `judge_model` recorded.
   - Per-pair `except Exception`: log WARNING with the pair index, skip, continue (RAGAS judges can return NaN — a bad pair must not kill the run).
   - CLI: `python -m backend.eval.harness --run --verbose`.
-  **AC:** the CLI completes against the live DB and inserts ≥ 45 offline rows (≤ 5 skips tolerated).
-- [ ] `GET /eval/latest`: last 30 days of `eval_results` aggregated per day per `eval_type` (mean of each metric), typed response.
-- [ ] Record baseline scores in `README.md` (date, judge model, per-metric means). These numbers are your regression line.
-- [ ] `backend/eval/scheduler.py`: drift check — compare this week's offline means vs last week's; any metric down > 5% relative → `logger.warning("DRIFT <metric> <delta>")`. Skip the comparison (log INFO) if `judge_model` changed between weeks.
-- [ ] Schedule weekly harness run with APScheduler from the FastAPI lifespan (guard: only when `APP_ENV != "test"`).
-  **AC:** start the app, check logs show the job registered with the correct next-run time.
-- [ ] `backend/tests/test_harness.py`: run the harness on the first 5 pairs with a stubbed judge → 5 `EvalResult` rows, all four metric fields set, all in [0,1], `eval_type='offline'`.
+  **AC:** the CLI completes against the live DB and inserts ≥ 45 offline rows (≤ 5 skips tolerated). _(Code complete; live ≥45-rows run is credential-blocked — needs OPENAI_API_KEY + ANTHROPIC_API_KEY. Deferred to Phase 4.6.)_
+- [x] `GET /eval/latest`: last 30 days of `eval_results` aggregated per day per `eval_type` (mean of each metric), typed response.
+- [ ] Record baseline scores in `README.md` (date, judge model, per-metric means). These numbers are your regression line. _(BLOCKED on the live harness run — placeholder table in README; fill during Phase 4.6.)_
+- [x] `backend/eval/scheduler.py`: drift check — compare this week's offline means vs last week's; any metric down > 5% relative → `logger.warning("DRIFT <metric> <delta>")`. Skip the comparison (log INFO) if `judge_model` changed between weeks.
+- [x] Schedule weekly harness run with APScheduler from the FastAPI lifespan (guard: only when `APP_ENV != "test"`).
+  **AC:** start the app, check logs show the job registered with the correct next-run time. _(Verified: `offline_eval_weekly` registers with a next-run time inside the async lifespan.)_
+- [x] `backend/tests/test_harness.py`: run the harness on the first 5 pairs with a stubbed judge → 5 `EvalResult` rows, all four metric fields set, all in [0,1], `eval_type='offline'`.
+
+---
+
+## Phase 4.6 — Live credentialed verification (run everything skipped so far) ← needs real API keys
+*Goal: with real keys in `.env`, run every credential-blocked check from Phases 2–4 against live LLMs and record results. No new code — these are runs/observations that were deferred because `.env` had empty keys.*
+
+Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a Langfuse public/secret key pair (create a project at `localhost:3000`).
+
+- [ ] **Phase 2 — Langfuse trace:** POST a fixture; confirm a `triage.classify` trace appears in Langfuse with model `claude-haiku-4-5`. Also confirm live triage actually classifies (severity not forced to P3/error).
+- [ ] **Phase 2/3 — live agent run:** POST `github_ci_failure.json`; confirm triage→analysis→action produces a real root cause + proposal (`human_decision='pending'`) and Langfuse spans `analysis.retrieve` / `analysis.reason` / `action.propose`.
+- [ ] **Phase 3.5 — online eval live:** confirm the analyzed run produces an `online` `eval_results` row with real RAGAS scores (and an `eval.score` trace).
+- [ ] **Phase 4 — offline harness live:** `python -m backend.eval.harness --run --verbose` inserts ≥ 45 offline rows against `ground_truth.jsonl` (≤ 5 skips). _(Phase 4 AC.)_
+- [ ] **Phase 4 — baselines:** record the per-metric means (date, judge model) in `README.md`; verify faithfulness ≥ 0.85, hallucination ≤ 0.10 targets.
+- [ ] **Cost/observability check:** confirm Langfuse shows per-call cost for `claude-haiku-4-5` / `claude-sonnet-4-6` and the run stays under the ~$0.04/incident target.
 
 ---
 
