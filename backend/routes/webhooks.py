@@ -11,9 +11,11 @@ graph.
 
 import hashlib
 import hmac
+import json
 import logging
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
@@ -23,10 +25,16 @@ from backend.db.session import AsyncSessionLocal
 from backend.integrations.github import parse_github_event
 from backend.integrations.gitlab import parse_gitlab_event
 from backend.integrations.normalized import NormalizedEvent
+from backend.integrations.slack import (
+    APPROVE_ACTION_ID,
+    DISMISS_ACTION_ID,
+    verify_slack_signature,
+)
 from backend.models.agent_run import AgentRun
 from backend.models.event import Event
 from backend.models.incident import Incident
 from backend.rag.ingest import ingest_event
+from backend.routes.incidents import IncidentNotFound, NotPending, apply_decision
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +180,41 @@ async def gitlab_webhook(
     return {"status": "accepted", "event_id": str(event.id)}
 
 
-async def _json(body: bytes) -> dict:
-    import json
+_SLACK_DECISIONS = {APPROVE_ACTION_ID: "approved", DISMISS_ACTION_ID: "dismissed"}
 
+
+@router.post("/slack/actions")
+async def slack_actions(request: Request) -> dict:
+    """Handle Slack approve/dismiss button clicks (AD-1). Always 200 once signed."""
+    body = await request.body()
+    if not verify_slack_signature(
+        body,
+        request.headers.get("X-Slack-Request-Timestamp"),
+        request.headers.get("X-Slack-Signature"),
+    ):
+        raise HTTPException(status_code=401, detail="invalid slack signature")
+
+    payload_raw = parse_qs(body.decode("utf-8")).get("payload", [None])[0]
+    if not payload_raw:
+        return {"status": "ignored"}
+    actions = (json.loads(payload_raw).get("actions")) or []
+    if not actions:
+        return {"status": "ignored"}
+
+    action = actions[0]
+    decision = _SLACK_DECISIONS.get(action.get("action_id"))
+    incident_id = action.get("value")
+    if decision and incident_id:
+        try:
+            await apply_decision(uuid.UUID(incident_id), decision)  # type: ignore[arg-type]
+        except (IncidentNotFound, NotPending):
+            logger.warning("slack action on non-actionable incident %s", incident_id)
+        except Exception:
+            logger.exception("slack action handling failed for incident %s", incident_id)
+    return {"status": "ok"}
+
+
+async def _json(body: bytes) -> dict:
     try:
         return json.loads(body)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:

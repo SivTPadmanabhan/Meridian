@@ -132,6 +132,7 @@ Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a La
 - [ ] **Phase 3.5 — online eval live:** confirm the analyzed run produces an `online` `eval_results` row with real RAGAS scores (and an `eval.score` trace).
 - [ ] **Phase 4 — offline harness live:** `python -m backend.eval.harness --run --verbose` inserts ≥ 45 offline rows against `ground_truth.jsonl` (≤ 5 skips). _(Phase 4 AC.)_
 - [ ] **Phase 4 — baselines:** record the per-metric means (date, judge model) in `README.md`; verify faithfulness ≥ 0.85, hallucination ≤ 0.10 targets.
+- [ ] **Phase 5 — Slack delivery + approval round-trip:** with a real `SLACK_BOT_TOKEN` / `SLACK_SIGNING_SECRET` and a `#meridian-alerts` channel, POST `github_ci_failure.json` → the Block Kit alert appears → click Approve → `agent_runs.human_decision='approved'` AND `incidents.status='approved'`. _(Phase 5 end-to-end AC.)_
 - [ ] **Cost/observability check:** confirm Langfuse shows per-call cost for `claude-haiku-4-5` / `claude-sonnet-4-6` and the run stays under the ~$0.04/incident target.
 
 ---
@@ -139,16 +140,16 @@ Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a La
 ## Phase 5 — Slack Output + Human Approval
 *Goal: an incident produces a Slack message; clicking Approve updates the DB. Est. 2 hours. (AD-1.)*
 
-- [ ] `backend/integrations/slack.py`:
+- [x] `backend/integrations/slack.py`:
   - `build_alert_message(agent_run, incident) -> dict` — Block Kit payload exactly per PRODUCT.md → Slack Message Structure; the two buttons carry `action_id`s `approve_action` / `dismiss_action` and `value=str(incident_id)`.
-  - `async send_alert(message) -> str` — posts via `slack_sdk.web.async_client.AsyncWebClient`, returns `ts`.
-- [ ] Call `send_alert` from the action node's marked call site (after the proposal is stored, before eval).
-- [ ] Shared approval service: `async def apply_decision(incident_id, decision)` — sets `AgentRun.human_decision` and `Incident.status` (`approved`/`dismissed`) in one transaction. Used by BOTH paths below.
-- [ ] `POST /webhooks/slack/actions`: validate the Slack signing secret (timestamp + HMAC), parse the interaction payload, call `apply_decision`. Always 200.
-- [ ] `POST /incidents/{id}/approve`: body `{"decision": "approved"|"dismissed"}` → `apply_decision`. 404 for unknown id, 409 if not pending.
-- [ ] `backend/tests/test_slack.py`: `build_alert_message` produces `blocks` + `text` + an actions block with two buttons; mocked `AsyncWebClient` is called once per analyzed run; `apply_decision` flips both rows.
+  - `async send_alert(message) -> str` — posts via `slack_sdk.web.async_client.AsyncWebClient`, returns `ts`. _(Degrades to a no-op + WARNING when `SLACK_BOT_TOKEN`/`SLACK_CHANNEL_ID` are empty — matches the no-keys policy.)_ Also `verify_slack_signature(body, ts, sig)`.
+- [x] Call `send_alert` from the action node's marked call site (after the proposal is stored, before eval). _(Wrapped in `_notify`, guarded by its own try/except so a Slack failure never fails the run or skips eval.)_
+- [x] Shared approval service: `async def apply_decision(incident_id, decision)` — sets `AgentRun.human_decision` and `Incident.status` (`approved`/`dismissed`) in one transaction. Used by BOTH paths below. _(In `routes/incidents.py`; raises `IncidentNotFound` / `NotPending` for callers to map.)_
+- [x] `POST /webhooks/slack/actions`: validate the Slack signing secret (timestamp + HMAC), parse the interaction payload, call `apply_decision`. Always 200. _(Invalid signature → 401; valid → always 200 regardless of decision outcome.)_
+- [x] `POST /incidents/{id}/approve`: body `{"decision": "approved"|"dismissed"}` → `apply_decision`. 404 for unknown id, 409 if not pending.
+- [x] `backend/tests/test_slack.py`: `build_alert_message` produces `blocks` + `text` + an actions block with two buttons; mocked `AsyncWebClient` is called once per analyzed run; `apply_decision` flips both rows. _(7 tests; also covers REST 404/409 + Slack signature accept/reject. Full suite: 36 passing.)_
 - [ ] End-to-end smoke test.
-  **AC:** POST `github_ci_failure.json` → message appears in `#meridian-alerts` → click Approve → `agent_runs.human_decision='approved'` AND `incidents.status='approved'`.
+  **AC:** POST `github_ci_failure.json` → message appears in `#meridian-alerts` → click Approve → `agent_runs.human_decision='approved'` AND `incidents.status='approved'`. _(BLOCKED on credentials: needs a real `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, a `#meridian-alerts` channel, and `ANTHROPIC_API_KEY` for the live run. The hermetic path is fully covered above; live Slack delivery is deferred to Phase 4.6.)
 
 ---
 

@@ -15,7 +15,9 @@ from sqlalchemy import select
 from backend.config import settings
 from backend.agents.state import MeridianState
 from backend.db.session import AsyncSessionLocal
+from backend.integrations.slack import build_alert_message, send_alert
 from backend.models.agent_run import AgentRun
+from backend.models.incident import Incident
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +77,25 @@ async def _persist(incident_id: str, analysis_output: dict, action_proposed: dic
         await session.commit()
 
 
+async def _notify(incident_id: str) -> None:
+    """Send the Slack alert for a stored proposal (Phase 5).
+
+    Guarded by its own try/except: a Slack failure must not fail the run or skip
+    the downstream eval node. Degrades to a no-op when Slack is unconfigured.
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            run = (
+                await session.execute(
+                    select(AgentRun).where(AgentRun.incident_id == uuid.UUID(incident_id))
+                )
+            ).scalar_one()
+            incident = await session.get(Incident, uuid.UUID(incident_id))
+        await send_alert(build_alert_message(run, incident))
+    except Exception:
+        logger.exception("Slack alert failed for incident %s", incident_id)
+
+
 async def action_node(state: MeridianState) -> dict:
     try:
         suggested_action = await _propose(state)
@@ -85,9 +106,8 @@ async def action_node(state: MeridianState) -> dict:
         action_proposed = {"suggested_action": suggested_action}
         await _persist(state["incident_id"], analysis_output, action_proposed)
 
-        # Phase 5: send the Slack alert here (after the proposal is stored,
-        # before eval). Marked call site:
-        #   await send_alert(build_alert_message(run, incident))
+        # Phase 5: alert after the proposal is stored, before eval (AD-1).
+        await _notify(state["incident_id"])
 
         return {"suggested_action": suggested_action}
     except Exception as exc:
