@@ -111,6 +111,40 @@ async def send_alert(message: dict) -> str | None:
     return resp["ts"]
 
 
+async def fetch_channel_history(
+    channel_id: str | None = None, limit: int | None = None
+) -> list[str]:
+    """Return the text of recent messages in the ingest channel (V2).
+
+    Skips messages without usable text (joins, bot housekeeping). Returns ``[]``
+    when Slack is unconfigured so a no-key environment never raises.
+    """
+    channel = channel_id or settings.SLACK_INGEST_CHANNEL_ID
+    if not settings.SLACK_BOT_TOKEN or not channel:
+        logger.warning("Slack ingest not configured (token/channel empty); skipping")
+        return []
+    resp = await _get_client().conversations_history(
+        channel=channel, limit=limit or settings.SLACK_INGEST_LIMIT
+    )
+    messages = resp["messages"] or []
+    return [m["text"] for m in messages if m.get("text")]
+
+
+async def ingest_slack_history(channel_id: str | None = None) -> int:
+    """Poll the ingest channel and embed its content into ``document_chunks``.
+
+    Imported lazily to avoid a heavy RAG import at module load. Returns the
+    number of chunks stored (0 when unconfigured or the channel is empty).
+    """
+    texts = await fetch_channel_history(channel_id)
+    if not texts:
+        return 0
+    from backend.rag import ingest
+
+    document = "\n\n".join(texts)
+    return await ingest.ingest_text("slack", document)
+
+
 def verify_slack_signature(body: bytes, timestamp: str | None, signature: str | None) -> bool:
     """Validate Slack's ``v0`` request signature (timestamp + HMAC-SHA256)."""
     if not timestamp or not signature:

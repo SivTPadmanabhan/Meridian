@@ -46,11 +46,25 @@ class Settings(BaseSettings):
     # Slack
     SLACK_BOT_TOKEN: str = ""
     SLACK_SIGNING_SECRET: str = ""
-    SLACK_CHANNEL_ID: str = ""
+    SLACK_CHANNEL_ID: str = ""           # #meridian-alerts (outbound)
+    SLACK_INGEST_CHANNEL_ID: str = ""    # channel polled into the RAG store (V2)
+    SLACK_INGEST_LIMIT: int = 100        # messages fetched per poll
 
     # GitHub / GitLab
     GITHUB_WEBHOOK_SECRET: str = ""
     GITLAB_WEBHOOK_SECRET: str = ""
+
+    # Notion runbook sync (V2)
+    NOTION_API_KEY: str = ""
+    NOTION_DATABASE_ID: str = ""
+    NOTION_VERSION: str = "2022-06-28"
+
+    # Salesforce (V2 — RevOps webhook + OAuth refresh)
+    SALESFORCE_WEBHOOK_SECRET: str = ""
+    SALESFORCE_CLIENT_ID: str = ""
+    SALESFORCE_CLIENT_SECRET: str = ""
+    SALESFORCE_REFRESH_TOKEN: str = ""
+    SALESFORCE_TOKEN_URL: str = "https://login.salesforce.com/services/oauth2/token"
 
     # Application
     APP_ENV: str = "development"

@@ -25,6 +25,7 @@ from backend.db.session import AsyncSessionLocal
 from backend.integrations.github import parse_github_event
 from backend.integrations.gitlab import parse_gitlab_event
 from backend.integrations.normalized import NormalizedEvent
+from backend.integrations.salesforce import parse_salesforce_event
 from backend.integrations.slack import (
     APPROVE_ACTION_ID,
     DISMISS_ACTION_ID,
@@ -63,6 +64,16 @@ async def verify_gitlab_token(
     """Validate the GitLab shared-secret token (constant-time equality)."""
     if not x_gitlab_token or not hmac.compare_digest(
         x_gitlab_token, settings.GITLAB_WEBHOOK_SECRET
+    ):
+        raise HTTPException(status_code=401, detail="invalid token")
+
+
+async def verify_salesforce_token(
+    x_salesforce_token: str | None = Header(default=None),
+) -> None:
+    """Validate the Salesforce shared-secret token (constant-time equality)."""
+    if not x_salesforce_token or not hmac.compare_digest(
+        x_salesforce_token, settings.SALESFORCE_WEBHOOK_SECRET
     ):
         raise HTTPException(status_code=401, detail="invalid token")
 
@@ -107,6 +118,7 @@ async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
         "event_payload": normalized.model_dump(mode="json"),
         "severity": "",
         "confidence": 0.0,
+        "category": "DevOps",
         "retrieved_context": [],
         "root_cause": "",
         "suggested_action": "",
@@ -119,6 +131,7 @@ async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
 
     severity = final_state.get("severity") or None
     confidence = final_state.get("confidence")
+    category = final_state.get("category") or "DevOps"
     errored = final_state.get("error") is not None
     # Confident low-severity runs end at triage (AD-3); human_decision stays NULL.
     triaged_low = (
@@ -130,7 +143,7 @@ async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
     async with AsyncSessionLocal() as session:
         db_run = await session.get(AgentRun, run_id)
         db_incident = await session.get(Incident, incident_id)
-        db_run.triage_output = {"severity": severity, "confidence": confidence}
+        db_run.triage_output = {"severity": severity, "confidence": confidence, "category": category}
         db_run.completed_at = datetime.now(timezone.utc)
         db_incident.severity = severity
         if triaged_low:
@@ -176,6 +189,20 @@ async def gitlab_webhook(
     payload = await _json(body)
     normalized = parse_gitlab_event(x_gitlab_event, payload)
     event = await _store_event("gitlab", normalized.event_type, payload, body)
+    background_tasks.add_task(process_event, event.id, normalized)
+    return {"status": "accepted", "event_id": str(event.id)}
+
+
+@router.post("/salesforce", dependencies=[Depends(verify_salesforce_token)])
+async def salesforce_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+) -> dict:
+    """Receive a Salesforce RevOps notification (AD-7): validate → store → 200."""
+    body = await request.body()
+    payload = await _json(body)
+    normalized = parse_salesforce_event(payload)
+    event = await _store_event("salesforce", normalized.event_type, payload, body)
     background_tasks.add_task(process_event, event.id, normalized)
     return {"status": "accepted", "event_id": str(event.id)}
 

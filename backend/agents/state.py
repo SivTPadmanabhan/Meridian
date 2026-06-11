@@ -12,6 +12,7 @@ class MeridianState(TypedDict):
     event_payload: dict
     severity: str                # "P0" | "P1" | "P2" | "P3"
     confidence: float            # 0.0–1.0
+    category: str                # "DevOps" | "RevOps" (V2 — Salesforce = RevOps)
     retrieved_context: Annotated[list[str], operator.add]
     root_cause: str
     suggested_action: str

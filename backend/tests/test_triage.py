@@ -61,6 +61,32 @@ async def test_triage_node_returns_valid_shape(monkeypatch, severity: str) -> No
         assert route_after_triage(merged) == "analysis"
 
 
+def test_classification_defaults_category_to_devops() -> None:
+    # Existing call sites construct without a category — must keep working.
+    assert TriageClassification(severity="P0", confidence=0.9).category == "DevOps"
+
+
+@pytest.mark.asyncio
+async def test_triage_node_carries_revops_category(monkeypatch) -> None:
+    monkeypatch.setattr(
+        triage, "_get_structured_llm",
+        lambda: _FakeLLM(
+            TriageClassification(severity="P2", confidence=0.8, category="RevOps")
+        ),
+    )
+    out = await triage_node(_state("", 0.0))
+    assert out["category"] == "RevOps"
+
+
+def test_triage_prompt_is_source_aware() -> None:
+    # Salesforce events should steer the model toward RevOps; DevOps for git hosts.
+    salesforce = triage._build_messages({"source": "salesforce", "title": "Deal stalled"})
+    github = triage._build_messages({"source": "github", "title": "CI failed"})
+    assert "RevOps" in salesforce[0]["content"]
+    assert "salesforce" in salesforce[1]["content"].lower()
+    assert "RevOps" in github[0]["content"]  # categories explained in the system prompt
+
+
 @pytest.mark.asyncio
 async def test_triage_node_error_path_sets_error_and_ends(monkeypatch) -> None:
     class _Boom:

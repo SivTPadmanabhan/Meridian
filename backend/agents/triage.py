@@ -30,6 +30,11 @@ class TriageClassification(BaseModel):
     confidence: float = Field(
         ge=0.0, le=1.0, description="confidence in the severity label, 0.0–1.0"
     )
+    category: Literal["DevOps", "RevOps"] = Field(
+        default="DevOps",
+        description="DevOps for engineering signals (GitHub/GitLab); "
+        "RevOps for Salesforce revenue-operations signals",
+    )
 
 
 def _get_structured_llm():
@@ -45,11 +50,14 @@ def _get_structured_llm():
 
 
 _SYSTEM_PROMPT = (
-    "You are the triage stage of an engineering operations assistant. "
-    "Classify the severity of a DevOps event (CI failure, push, PR, pipeline). "
+    "You are the triage stage of an enterprise operations assistant. "
+    "Classify the severity AND category of an incoming event. "
     "P0 = production outage / critical breakage; P1 = high impact, needs attention soon; "
     "P2 = medium, routine failure; P3 = low / informational / noise. "
-    "Return a severity and your confidence in it."
+    "Category: use 'DevOps' for engineering signals (GitHub/GitLab — CI failures, "
+    "pushes, PRs, pipelines); use 'RevOps' for Salesforce revenue-operations signals "
+    "(stalled opportunities, escalated cases, at-risk renewals). "
+    "Return a severity, your confidence in it, and the category."
 )
 
 
@@ -83,8 +91,12 @@ async def triage_node(state: MeridianState) -> dict:
                 },
             },
         )
-        return {"severity": result.severity, "confidence": result.confidence}
+        return {
+            "severity": result.severity,
+            "confidence": result.confidence,
+            "category": result.category,
+        }
     except Exception as exc:
         logger.exception("triage_node failed for event %s", state["event_id"])
         # error set → route_after_triage sends the run to END.
-        return {"error": f"triage: {exc}", "severity": "P3", "confidence": 1.0}
+        return {"error": f"triage: {exc}", "severity": "P3", "confidence": 1.0, "category": "DevOps"}

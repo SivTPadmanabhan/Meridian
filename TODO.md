@@ -177,10 +177,16 @@ Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a La
 
 ## Phase 7 — Extended Integrations (V2 — only after Phases 1–6 + clean pytest)
 
-- [ ] Slack message ingestion: scheduled channel-history poll → embed thread content into `document_chunks` (`source='slack'`).
-- [ ] Notion runbook sync: fetch pages via Notion API, chunk, embed (`source='notion'`).
-- [ ] Salesforce webhook receiver → `NormalizedEvent` (`source='salesforce'`); OAuth token refresh in `backend/integrations/salesforce.py`.
-- [ ] Triage prompt update: classify Salesforce events as `RevOps` category alongside `DevOps`.
+> Built hermetically (mocked external clients), no new deps — Notion/Salesforce use the
+> already-pinned `httpx`. Every integration degrades to a no-op without credentials,
+> matching the no-keys policy. Live runs are credential-blocked (deferred, like Phase 4.6).
+
+- [x] Slack message ingestion: scheduled channel-history poll → embed thread content into `document_chunks` (`source='slack'`). _(`slack.fetch_channel_history` + `ingest_slack_history` (→ `ingest_text('slack', …)`); registered as an hourly `slack_ingest_hourly` APScheduler job in `eval/scheduler.py`, only when `SLACK_INGEST_CHANNEL_ID` is set. Tests: `test_slack_ingest.py` (fetch filters non-text msgs, embeds with slack source, no-creds no-op).)_
+- [x] Notion runbook sync: fetch pages via Notion API, chunk, embed (`source='notion'`). _(`integrations/notion.py`: `fetch_runbook_pages` (Notion REST via httpx — query DB → block children) + `sync_runbooks` (→ `ingest_text('notion', …)`); pure `_plain_text_from_blocks` / `_page_title` helpers unit-tested. Tests: `test_notion.py`.)_
+- [x] Salesforce webhook receiver → `NormalizedEvent` (`source='salesforce'`); OAuth token refresh in `backend/integrations/salesforce.py`. _(`parse_salesforce_event` (defensive, source='salesforce') + `refresh_access_token` (OAuth refresh_token grant); `POST /webhooks/salesforce` with constant-time `X-Salesforce-Token` gate (401 on bad token, stores nothing — AD-7). Tests: `test_salesforce.py`.)_
+- [x] Triage prompt update: classify Salesforce events as `RevOps` category alongside `DevOps`. _(Added `category` (`DevOps`|`RevOps`, default `DevOps`) to `TriageClassification` + source-aware system prompt; threaded through `MeridianState.category` and persisted in `AgentRun.triage_output`. Tests: `test_triage.py` (default category, RevOps carry-through, source-aware prompt).)_
+
+**Phase 7 status:** code complete, full suite **54 passing**. Live credentialed verification (real Slack/Notion/Salesforce APIs) deferred alongside Phase 4.6.
 
 ---
 

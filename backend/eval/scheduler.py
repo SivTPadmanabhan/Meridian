@@ -83,6 +83,17 @@ async def weekly_job() -> None:
     await check_drift()
 
 
+async def slack_ingest_job() -> None:
+    """Poll the Slack ingest channel into the RAG store (V2). Never crashes the app."""
+    from backend.integrations.slack import ingest_slack_history
+
+    try:
+        stored = await ingest_slack_history()
+        logger.info("slack ingest poll stored %d chunk(s)", stored)
+    except Exception:
+        logger.exception("slack ingest poll failed")
+
+
 def start_scheduler() -> AsyncIOScheduler:
     """Register the weekly offline-eval job. Guarded against the test environment."""
     scheduler = AsyncIOScheduler(timezone="UTC")
@@ -94,6 +105,15 @@ def start_scheduler() -> AsyncIOScheduler:
         id="offline_eval_weekly",
         replace_existing=True,
     )
+    # V2: poll the Slack ingest channel hourly, only when it is configured.
+    if settings.SLACK_INGEST_CHANNEL_ID:
+        scheduler.add_job(
+            slack_ingest_job,
+            trigger="interval",
+            hours=1,
+            id="slack_ingest_hourly",
+            replace_existing=True,
+        )
     scheduler.start()
     job = scheduler.get_job("offline_eval_weekly")
     logger.info("scheduled offline_eval_weekly; next run at %s", job.next_run_time)

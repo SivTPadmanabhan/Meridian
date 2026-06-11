@@ -65,7 +65,7 @@ async def test_pipeline_creates_one_row_each(client, clean_db) -> None:
     async with AsyncSessionLocal() as s:
         run = (await s.execute(select(AgentRun))).scalar_one()
         incident = (await s.execute(select(Incident))).scalar_one()
-    assert run.triage_output == {"severity": "P2", "confidence": 0.9}
+    assert run.triage_output == {"severity": "P2", "confidence": 0.9, "category": "DevOps"}
     assert incident.severity == "P2"
     assert incident.status == "triaged_low"
 
