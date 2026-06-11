@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.session import AsyncSessionLocal, get_db
 from backend.models.agent_run import AgentRun
+from backend.models.eval_result import EvalResult
 from backend.models.incident import Incident
 
 router = APIRouter(prefix="/incidents", tags=["incidents"])
@@ -59,6 +60,7 @@ class IncidentSummary(BaseModel):
     severity: str | None
     status: str
     confidence: float | None
+    human_decision: str | None
     created_at: datetime
 
 
@@ -82,10 +84,89 @@ async def list_incidents(db: AsyncSession = Depends(get_db)) -> list[IncidentSum
                 severity=incident.severity,
                 status=incident.status,
                 confidence=triage.get("confidence"),
+                human_decision=run.human_decision if run else None,
                 created_at=incident.created_at,
             )
         )
     return summaries
+
+
+class EvalScore(BaseModel):
+    eval_type: str
+    faithfulness: float | None
+    response_relevancy: float | None
+    hallucination_rate: float | None
+    context_precision: float | None
+    factual_correctness: float | None
+    judge_model: str
+    scored_at: datetime
+
+
+class IncidentDetail(BaseModel):
+    id: uuid.UUID
+    title: str
+    severity: str | None
+    status: str
+    created_at: datetime
+    resolved_at: datetime | None
+    triage_output: dict | None
+    analysis_output: dict | None
+    action_proposed: dict | None
+    human_decision: str | None
+    completed_at: datetime | None
+    eval_scores: list[EvalScore]
+
+
+@router.get("/{incident_id}", response_model=IncidentDetail)
+async def get_incident(
+    incident_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> IncidentDetail:
+    """Full incident trace: AgentRun outputs + online eval scores (Phase 6 detail page)."""
+    incident = await db.get(Incident, incident_id)
+    if incident is None:
+        raise HTTPException(status_code=404, detail="incident not found")
+
+    run = (
+        await db.execute(select(AgentRun).where(AgentRun.incident_id == incident_id))
+    ).scalar_one_or_none()
+
+    scores: list[EvalScore] = []
+    if run is not None:
+        eval_rows = (
+            await db.execute(
+                select(EvalResult)
+                .where(EvalResult.agent_run_id == run.id)
+                .order_by(EvalResult.scored_at.desc())
+            )
+        ).scalars().all()
+        scores = [
+            EvalScore(
+                eval_type=r.eval_type,
+                faithfulness=r.faithfulness,
+                response_relevancy=r.response_relevancy,
+                hallucination_rate=r.hallucination_rate,
+                context_precision=r.context_precision,
+                factual_correctness=r.factual_correctness,
+                judge_model=r.judge_model,
+                scored_at=r.scored_at,
+            )
+            for r in eval_rows
+        ]
+
+    return IncidentDetail(
+        id=incident.id,
+        title=incident.title,
+        severity=incident.severity,
+        status=incident.status,
+        created_at=incident.created_at,
+        resolved_at=incident.resolved_at,
+        triage_output=run.triage_output if run else None,
+        analysis_output=run.analysis_output if run else None,
+        action_proposed=run.action_proposed if run else None,
+        human_decision=run.human_decision if run else None,
+        completed_at=run.completed_at if run else None,
+        eval_scores=scores,
+    )
 
 
 class ApprovalRequest(BaseModel):
