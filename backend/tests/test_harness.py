@@ -2,7 +2,7 @@
 
 import pandas as pd
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from backend.config import settings
 from backend.db.session import AsyncSessionLocal
@@ -53,3 +53,28 @@ async def test_harness_stores_offline_rows(clean_db) -> None:
             assert value is not None and 0.0 <= value <= 1.0
         assert r.hallucination_rate == pytest.approx(0.2)
         assert r.judge_model == settings.OPENAI_JUDGE_MODEL
+
+
+@pytest.mark.asyncio
+async def test_harness_skips_bad_pair_and_continues(monkeypatch, clean_db) -> None:
+    """AD-2: a judge failure on one pair is skipped; the run stores the rest."""
+    df = pd.DataFrame([{
+        "faithfulness": 0.8, "answer_relevancy": 0.7,
+        "context_precision": 0.9, "factual_correctness": 0.6,
+    }])
+
+    def _flaky_evaluate(**kw):
+        # The 3rd pair's response is "response for q2" — blow up only on that one.
+        sample = kw["dataset"].to_list()[0]
+        if sample["user_input"] == "q2":
+            raise RuntimeError("judge returned garbage")
+        return type("R", (), {"to_pandas": lambda self: df})()
+
+    monkeypatch.setattr(harness, "evaluate", _flaky_evaluate)
+
+    stored = await harness.run(_PAIRS)  # must not raise despite the bad pair
+    assert len(stored) == 4             # 5 pairs, 1 skipped
+
+    async with AsyncSessionLocal() as s:
+        count = await s.scalar(select(func.count()).select_from(EvalResult))
+    assert count == 4
