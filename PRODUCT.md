@@ -2,7 +2,7 @@
 
 ## Vision
 
-Meridian turns fragmented engineering signals into actionable, prioritized intelligence — surfaced in Slack and a React dashboard before an engineer needs to look. It is not a chatbot. It is a self-evaluating multi-agent system that watches your ops stack, triages noise from signal, performs root cause analysis with RAG context, and proposes concrete actions with a human approval gate before anything consequential happens.
+Meridian turns fragmented engineering signals into actionable, prioritized intelligence — surfaced in Slack and a Next.js dashboard before an engineer needs to look. It is not a chatbot. It is a self-evaluating multi-agent system that watches your ops stack, triages noise from signal, performs root cause analysis with RAG context, and proposes concrete actions with a human approval gate before anything consequential happens.
 
 **V1 scope is deliberately narrow:** GitHub and GitLab CI as the only two data sources. One vertical (DevOps), done right, with a working eval harness. Everything else is V2.
 
@@ -52,7 +52,7 @@ The problem is not a shortage of monitoring tools. It is a shortage of intellige
 
 ### V1.5 (dashboard — build after the pipeline works)
 
-**US-008** — As a DevOps lead, I want a React dashboard showing active incidents, agent confidence scores over time, and LLM cost per query so I have a single pane of glass view.
+**US-008** — As a DevOps lead, I want a Next.js dashboard showing active incidents, agent confidence scores over time, and LLM cost per query so I have a single pane of glass view.
 
 **US-009** — As a DevOps lead, I want to see the full agent trace for any past incident — input event, retrieved context, LLM reasoning, action taken, eval scores — so I can audit what the system decided and why.
 
@@ -106,7 +106,7 @@ The problem is not a shortage of monitoring tools. It is a shortage of intellige
                             ↓
 ┌─ Output Layer ───────────────────────────────────────────────┐
 │  Slack Bot         — Block Kit alerts + approval buttons      │
-│  React Dashboard   — Recharts + shadcn/ui                     │
+│  Next.js Dashboard — RSC + Recharts + shadcn/ui               │
 │  Langfuse (v3)     — traces, latency, cost per call           │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -168,7 +168,7 @@ Each Slack alert contains:
 5. **Section block** — suggested action (one concrete remediation step)
 6. **Actions block** — green "Approve action" button + gray "Dismiss" button
 
-### React Dashboard Pages
+### Next.js Dashboard Pages
 
 - `/` — **Incident Feed**: paginated list, severity badges, time since first event, status chip
 - `/incidents/:id` — **Incident Detail**: full agent trace, retrieved context viewer, online eval scores, approval history

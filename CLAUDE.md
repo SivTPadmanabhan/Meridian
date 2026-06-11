@@ -43,7 +43,7 @@ When you are unsure about a library API, you say so and check the installed vers
 | Scheduler | APScheduler ≥ 3.11 | Weekly offline eval run |
 | Slack | slack-sdk ≥ 3.33 | Block Kit + signature validation |
 | Testing | pytest + pytest-asyncio | Async-first |
-| Frontend | React 18 + TypeScript, Vite | shadcn/ui + Recharts + @tanstack/react-query v5 |
+| Frontend | Next.js 15 (App Router) + TypeScript | React Server Components fetch FastAPI server-side; Server Actions for mutations; shadcn/ui + Recharts (client islands). No react-query. |
 | Containers | Docker Compose | Local dev; Kubernetes in Phase 8 |
 | Audit log (Phase 8 only) | Apache Cassandra 5, `cassandra-driver` | Driver is sync — wrap in `asyncio.to_thread` |
 | Gateway (Phase 8 only) | Java 21 + Spring Boot 3.x | Read-only REST proxy in `backend-java/` |
@@ -125,26 +125,27 @@ meridian/
 │
 ├── k8s/                     # Phase 8 only
 │
-└── frontend/
+└── frontend/                 # Next.js 15, App Router, RSC-first
     ├── package.json
-    ├── vite.config.ts
-    ├── src/
-    │   ├── main.tsx
-    │   ├── App.tsx
-    │   ├── components/
-    │   │   ├── IncidentFeed.tsx
-    │   │   ├── IncidentDetail.tsx
-    │   │   ├── EvalMetricsChart.tsx
-    │   │   ├── CostTracker.tsx
-    │   │   └── ApprovalQueue.tsx
-    │   ├── pages/
-    │   │   ├── Dashboard.tsx
-    │   │   ├── IncidentDetailPage.tsx
-    │   │   └── EvalPage.tsx
-    │   └── lib/
-    │       ├── api.ts         # typed API client — ALL fetch calls live here
-    │       └── hooks.ts       # react-query hooks
-    └── tsconfig.json
+    ├── next.config.ts        # server-side fetch target; dev port 3001 (Langfuse owns 3000)
+    ├── tsconfig.json
+    ├── .env.local            # INTERNAL_API_URL=http://localhost:8000 (frontend-only; NOT the backend .env)
+    └── src/
+        ├── app/
+        │   ├── layout.tsx        # root layout (Server Component)
+        │   ├── page.tsx          # /            → Incident Feed (Server Component, fetches server-side)
+        │   ├── incidents/[id]/page.tsx   # /incidents/:id → Incident Detail (Server Component)
+        │   ├── eval/page.tsx     # /eval        → Eval Health (Server Component)
+        │   └── actions.ts        # "use server" — Server Actions (approve/dismiss) + revalidate
+        ├── components/
+        │   ├── IncidentFeed.tsx      # Server Component (renders fetched rows)
+        │   ├── IncidentDetail.tsx    # Server Component
+        │   ├── EvalMetricsChart.tsx  # "use client" — Recharts needs the browser; data passed as props
+        │   ├── CostTracker.tsx       # "use client" — Recharts
+        │   └── ApprovalButtons.tsx   # "use client" — invokes a Server Action
+        └── lib/
+            ├── api.ts        # server-side typed fetch wrappers — the ONLY place that calls FastAPI
+            └── types.ts      # shared TS interfaces (mirror the Pydantic response models)
 ```
 
 ---
@@ -356,12 +357,14 @@ Alembic runs on the same async engine (`alembic init -t async`). There is no psy
 - Typed Pydantic response models everywhere.
 - Approval has one shared service function (update `AgentRun.human_decision` + `Incident.status`), called from both the Slack actions webhook and `POST /incidents/{id}/approve`.
 
-### Frontend patterns
+### Frontend patterns (Next.js 15, App Router, RSC-first)
 
-- TypeScript strict mode. No `any` — write an interface instead.
-- All server state via `@tanstack/react-query` v5. No `useEffect` data fetching.
-- Typed props interfaces defined above each component.
-- All HTTP through `lib/api.ts`. No inline `fetch` in components.
+- TypeScript strict mode. No `any` — write an interface in `lib/types.ts` instead.
+- **Server Components fetch data; the browser never calls FastAPI directly.** Page components are `async` Server Components that read data through `lib/api.ts` server-side. No `useEffect` fetching, no react-query, no client-side data loading.
+- **Mutations are Server Actions.** Approve/dismiss live in `app/actions.ts` (`"use server"`), POST to FastAPI, then `revalidatePath(...)` / `revalidateTag(...)` to refresh the affected Server Components. Client components (e.g. `ApprovalButtons`) only *invoke* the action.
+- **Client components are minimal islands**, marked `"use client"`, used only where the browser is required: Recharts (`EvalMetricsChart`, `CostTracker`) and action-triggering buttons. They receive data as props from a Server Component parent — they never fetch.
+- All FastAPI calls go through `lib/api.ts` (server-side `fetch` to `process.env.INTERNAL_API_URL`, with `cache`/`revalidate` set per call). No inline `fetch` elsewhere. Because fetching is server-to-server, **no CORS and no API-client-in-the-browser**.
+- Typed props interfaces defined above each component; response types in `lib/types.ts` mirror the Pydantic models.
 - shadcn/ui for primitives, Recharts for charts.
 
 ---
@@ -402,7 +405,8 @@ PowerShell:
 ```powershell
 docker compose up -d
 uvicorn backend.main:app --reload --port 8000
-Set-Location frontend; npm run dev          # separate terminal
+Set-Location frontend; npm run dev           # Next.js dev on http://localhost:3001 (separate terminal)
+Start-Process http://localhost:3001          # Meridian dashboard
 Start-Process http://localhost:3000          # Langfuse UI
 ```
 
@@ -410,8 +414,9 @@ bash:
 ```bash
 docker compose up -d
 uvicorn backend.main:app --reload --port 8000
-cd frontend && npm run dev    # separate terminal
-open http://localhost:3000    # Langfuse UI (xdg-open on Linux)
+cd frontend && npm run dev    # Next.js dev on http://localhost:3001 (separate terminal)
+open http://localhost:3001    # Meridian dashboard (xdg-open on Linux)
+open http://localhost:3000    # Langfuse UI
 ```
 
 ### Testing

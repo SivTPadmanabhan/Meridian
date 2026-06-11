@@ -152,20 +152,25 @@ Prereqs: fill `.env` with a real `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and a La
 
 ---
 
-## Phase 6 — React Dashboard
-*Goal: a working web UI showing incidents, eval metrics, and pending approvals. Est. 3–4 hours.*
+## Phase 6 — Next.js Dashboard (App Router, RSC-first)
+*Goal: a working web UI showing incidents, eval metrics, and pending approvals — data fetched server-side via React Server Components, mutations via Server Actions. Est. 3–4 hours.*
 
-- [ ] Scaffold: `npm create vite@latest frontend -- --template react-ts`; install `@tanstack/react-query` (v5), `recharts`, `react-router-dom`, shadcn/ui (per current shadcn init for Vite).
-- [ ] `frontend/src/lib/api.ts`: typed client for all six read/write endpoints (incidents list/detail/approve, eval latest, health).
-- [ ] `frontend/src/lib/hooks.ts`: `useIncidents`, `useIncident(id)`, `useEvalMetrics`, `useApprove` (mutation with query invalidation).
-- [ ] `IncidentFeed`: table with severity badge, time-since, status chip, link to detail.
-- [ ] `IncidentDetail`: agent trace steps (triage → analysis → action → eval), retrieved-context accordion, online eval scores, Approve/Dismiss buttons calling `POST /incidents/{id}/approve`.
-- [ ] `EvalMetricsChart`: Recharts `LineChart` of offline metrics over 30 days with reference lines at faithfulness 0.85 and hallucination 0.10.
-- [ ] `ApprovalQueue`: all `human_decision='pending'` runs, one-click approve/dismiss.
-- [ ] Routing: `/` → feed, `/incidents/:id` → detail, `/eval` → chart + queue.
-- [ ] CORS: add `http://localhost:5173` to FastAPI `CORSMiddleware`.
+> **Architecture (settled with CLAUDE.md → Frontend patterns):** Server Components fetch FastAPI
+> server-side; the browser never calls the API directly (no CORS, no react-query). Mutations are
+> Server Actions that POST to FastAPI then `revalidatePath`. Client components are minimal islands
+> (`"use client"`) only for Recharts and action-triggering buttons. Next dev runs on **port 3001**
+> (Langfuse owns 3000).
+
+- [ ] Confirm/add the read endpoint the detail page needs: `GET /incidents/{id}` (full AgentRun trace + eval scores, typed response). Build it in `backend/routes/incidents.py` if not already present, with a happy-path pytest.
+- [ ] Scaffold: `npx create-next-app@latest frontend --ts --app --eslint --src-dir --use-npm` (no Tailwind prompt unless shadcn needs it); install `recharts` + shadcn/ui (per current shadcn init for **Next.js**). Set dev port to 3001 (`next dev -p 3001`).
+- [ ] `frontend/.env.local`: `INTERNAL_API_URL=http://localhost:8000` (frontend-only — NOT the backend `.env`). `frontend/src/lib/types.ts`: TS interfaces mirroring the Pydantic response models.
+- [ ] `frontend/src/lib/api.ts`: server-side typed `fetch` wrappers for the reads (`getIncidents`, `getIncident(id)`, `getEvalMetrics`, `getHealth`) hitting `INTERNAL_API_URL`, with `cache`/`next.revalidate` set per call. The ONLY place that calls FastAPI.
+- [ ] `frontend/src/app/actions.ts` (`"use server"`): `approveIncident(id, decision)` — POST `/incidents/{id}/approve`, then `revalidatePath("/")` and `revalidatePath("/eval")`.
+- [ ] `app/page.tsx` (`/`) — Server Component rendering `IncidentFeed`: table with severity badge, time-since, status chip, link to detail.
+- [ ] `app/incidents/[id]/page.tsx` — Server Component rendering `IncidentDetail`: agent trace steps (triage → analysis → action → eval), retrieved-context accordion, online eval scores, and `ApprovalButtons` (`"use client"`) wired to the `approveIncident` Server Action.
+- [ ] `app/eval/page.tsx` (`/eval`) — Server Component fetching eval metrics, passing data into `EvalMetricsChart` (`"use client"`, Recharts `LineChart` over 30 days with reference lines at faithfulness 0.85 and hallucination 0.10) + an Approval Queue listing all `human_decision='pending'` runs with one-click approve/dismiss.
 - [ ] Smoke test.
-  **AC:** `npm run dev` → incidents load, chart renders, approval click updates the status chip without a page refresh.
+  **AC:** `npm run dev` (port 3001) → `/` lists incidents (server-rendered), `/eval` chart renders, clicking Approve on a pending run runs the Server Action and the status chip updates after revalidation (no manual refresh).
 
 ---
 

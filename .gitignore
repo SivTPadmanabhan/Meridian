@@ -16,9 +16,12 @@ htmlcov/
 # Environment
 .env
 
-# Node
+# Node / Next.js
 node_modules/
-frontend/dist/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+frontend/.env.local
 
 # Editors / OS
 .vscode/
