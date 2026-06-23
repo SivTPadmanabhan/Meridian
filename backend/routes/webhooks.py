@@ -20,7 +20,9 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 
 from backend.config import settings
-from backend.agents.graph import get_graph
+from backend.ratelimit import limiter, slack_limit, webhook_limit
+from backend.agents.graph import ainvoke_graph
+from backend.db.cassandra import append_event as audit_append_event
 from backend.db.session import AsyncSessionLocal
 from backend.integrations.github import parse_github_event
 from backend.integrations.gitlab import parse_gitlab_event
@@ -42,12 +44,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
+def _enforce_body_size(body: bytes) -> None:
+    """Reject oversized webhook bodies (413) before any further work (AD-7 friendly).
+
+    Checked against the actual bytes read, not the (spoofable/absent) Content-Length.
+    A 413 stores nothing — the guard runs before the raw Event is persisted.
+    """
+    if len(body) > settings.MAX_WEBHOOK_BODY_BYTES:
+        raise HTTPException(status_code=413, detail="payload too large")
+
+
 async def verify_github_signature(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),
 ) -> bytes:
     """Validate the GitHub HMAC-SHA256 signature; return the raw body on success."""
     body = await request.body()
+    _enforce_body_size(body)
     if not x_hub_signature_256:
         raise HTTPException(status_code=401, detail="missing signature")
     expected = "sha256=" + hmac.new(
@@ -84,6 +97,13 @@ async def process_event(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
     Ingest the event into the RAG knowledge base, create exactly one Incident +
     one AgentRun, run the graph, then persist the triage outcome.
     """
+    if settings.CASSANDRA_AUDIT_ENABLED:
+        try:
+            await _append_audit(event_id)
+        except Exception:
+            # Best-effort journal: a Cassandra outage must never block the pipeline.
+            logger.exception("cassandra audit append failed for event %s", event_id)
+
     try:
         await ingest_event(normalized)
     except Exception:
@@ -93,6 +113,21 @@ async def process_event(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
         await _run_pipeline(event_id, normalized)
     except Exception:
         logger.exception("agent pipeline failed for event %s", event_id)
+
+
+async def _append_audit(event_id: uuid.UUID) -> None:
+    """Append the already-stored raw Event to the Cassandra audit journal."""
+    async with AsyncSessionLocal() as session:
+        event = await session.get(Event, event_id)
+    if event is None:
+        return
+    await audit_append_event(
+        event_id=event.id,
+        source=event.source,
+        event_type=event.event_type,
+        raw_body=event.raw_body,
+        received_at=event.received_at,
+    )
 
 
 async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> None:
@@ -125,9 +160,7 @@ async def _run_pipeline(event_id: uuid.UUID, normalized: NormalizedEvent) -> Non
         "eval_scores": {},
         "error": None,
     }
-    final_state = await get_graph().ainvoke(
-        initial_state, config={"configurable": {"thread_id": str(incident_id)}}
-    )
+    final_state = await ainvoke_graph(initial_state, str(incident_id))
 
     severity = final_state.get("severity") or None
     confidence = final_state.get("confidence")
@@ -167,7 +200,9 @@ async def _store_event(source: str, event_type: str, payload: dict, raw_body: by
 
 
 @router.post("/github")
+@limiter.limit(webhook_limit)
 async def github_webhook(
+    request: Request,
     background_tasks: BackgroundTasks,
     body: bytes = Depends(verify_github_signature),
     x_github_event: str = Header(default="unknown"),
@@ -180,12 +215,14 @@ async def github_webhook(
 
 
 @router.post("/gitlab", dependencies=[Depends(verify_gitlab_token)])
+@limiter.limit(webhook_limit)
 async def gitlab_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
     x_gitlab_event: str = Header(default="unknown"),
 ) -> dict:
     body = await request.body()
+    _enforce_body_size(body)
     payload = await _json(body)
     normalized = parse_gitlab_event(x_gitlab_event, payload)
     event = await _store_event("gitlab", normalized.event_type, payload, body)
@@ -194,12 +231,14 @@ async def gitlab_webhook(
 
 
 @router.post("/salesforce", dependencies=[Depends(verify_salesforce_token)])
+@limiter.limit(webhook_limit)
 async def salesforce_webhook(
     request: Request,
     background_tasks: BackgroundTasks,
 ) -> dict:
     """Receive a Salesforce RevOps notification (AD-7): validate → store → 200."""
     body = await request.body()
+    _enforce_body_size(body)
     payload = await _json(body)
     normalized = parse_salesforce_event(payload)
     event = await _store_event("salesforce", normalized.event_type, payload, body)
@@ -211,9 +250,11 @@ _SLACK_DECISIONS = {APPROVE_ACTION_ID: "approved", DISMISS_ACTION_ID: "dismissed
 
 
 @router.post("/slack/actions")
+@limiter.limit(slack_limit)
 async def slack_actions(request: Request) -> dict:
     """Handle Slack approve/dismiss button clicks (AD-1). Always 200 once signed."""
     body = await request.body()
+    _enforce_body_size(body)
     if not verify_slack_signature(
         body,
         request.headers.get("X-Slack-Request-Timestamp"),

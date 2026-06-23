@@ -83,7 +83,11 @@ async def eval_node(state: MeridianState) -> dict:
         if not state.get("root_cause"):
             return {"eval_scores": {}}
         judge = LangchainLLMWrapper(
-            ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL, api_key=settings.OPENAI_API_KEY)
+            ChatOpenAI(
+                model=settings.OPENAI_JUDGE_MODEL,
+                api_key=settings.OPENAI_API_KEY,
+                max_retries=settings.LLM_MAX_RETRIES,  # backoff on 429/5xx
+            )
         )
         scores = await asyncio.to_thread(
             _score,

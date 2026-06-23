@@ -13,10 +13,12 @@ import httpx
 import redis.asyncio as aioredis
 from fastapi import FastAPI
 from pydantic import BaseModel
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 
 from backend.config import settings
 from backend.db.session import engine
+from backend.ratelimit import limiter, rate_limit_exceeded_handler
 from backend.routes import eval as eval_routes
 from backend.routes import incidents, webhooks
 
@@ -30,6 +32,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     from backend.agents.graph import get_graph
 
     get_graph()
+
+    if settings.CASSANDRA_AUDIT_ENABLED:
+        from backend.db.cassandra import init_audit_log
+
+        try:
+            await init_audit_log()
+        except Exception:
+            logger.exception("cassandra audit init failed; continuing without audit log")
 
     scheduler = None
     if settings.APP_ENV != "test":
@@ -46,6 +56,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Meridian", version="0.1.0", lifespan=lifespan)
+
+# Inbound rate limiting (Phase 8). The decorators live on the route handlers;
+# here we register the shared limiter and the 429 handler (adds Retry-After).
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 app.include_router(webhooks.router)
 app.include_router(incidents.router)
 app.include_router(eval_routes.router)

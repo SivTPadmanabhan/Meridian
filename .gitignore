@@ -32,3 +32,11 @@ Thumbs.db
 # Data / models
 *.sqlite3
 .cache/
+
+# Java build output
+backend-java/target/
+
+# Project docs (local only)
+CLAUDE.md
+PRODUCT.md
+TODO.md

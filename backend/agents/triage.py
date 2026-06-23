@@ -44,6 +44,7 @@ def _get_structured_llm():
             model=settings.ANTHROPIC_TRIAGE_MODEL,
             api_key=settings.ANTHROPIC_API_KEY,
             max_tokens=1024,
+            max_retries=settings.LLM_MAX_RETRIES,  # backoff on 429/5xx
         )
         _structured_llm = llm.with_structured_output(TriageClassification)
     return _structured_llm

@@ -136,9 +136,51 @@ services:
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: meridian-dev-nextauth-secret
 
+  # Phase 8 — the Meridian backend, built non-root (see Dockerfile).
+  # Only port 8000 is published; it reaches postgres/redis/langfuse over the
+  # internal compose network by service name.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://meridian:password@postgres:5432/meridian
+      REDIS_URL: redis://redis:6379/0
+      LANGFUSE_HOST: http://langfuse-web:3000
+      APP_ENV: production
+      SERVER_KEEPALIVE_TIMEOUT: "15"
+    ports:
+      - "8000:8000"
+
+  # Phase 8 — append-only raw-event audit journal (backend/db/cassandra.py).
+  cassandra:
+    image: cassandra:5
+    restart: always
+    environment:
+      CASSANDRA_CLUSTER_NAME: meridian-audit
+      # Single-node dev cluster: keep memory modest.
+      MAX_HEAP_SIZE: 512M
+      HEAP_NEWSIZE: 128M
+    ports:
+      - "9042:9042"
+    volumes:
+      - meridian_cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 12
+
 volumes:
   meridian_postgres_data:
   meridian_redis_data:
   meridian_clickhouse_data:
   meridian_clickhouse_logs:
   meridian_minio_data:
+  meridian_cassandra_data:

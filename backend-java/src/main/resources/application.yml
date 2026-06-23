@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+meridian:
+  # Upstream FastAPI backend the gateway proxies to (read-only).
+  upstream: http://localhost:8000
+
+spring:
+  application:
+    name: meridian-gateway

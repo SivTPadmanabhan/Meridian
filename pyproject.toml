@@ -30,6 +30,14 @@ dependencies = [
     "pydantic-settings",
     "pgvector",
     "httpx",
+    # Phase 8 — audit log. Driver is synchronous; every call is wrapped in
+    # asyncio.to_thread (CLAUDE.md rule).
+    "cassandra-driver>=3.29",
+    # cassandra-driver's default-reactor resolver only tries gevent/eventlet
+    # (require stdlib monkeypatching — hostile to our asyncio app), libev (needs
+    # a C compiler), and asyncore (removed in Python 3.12). pyasyncore restores
+    # the asyncore module so the driver imports on 3.12+ without monkeypatching.
+    "pyasyncore; python_version >= '3.12'",
 ]
 
 [project.optional-dependencies]

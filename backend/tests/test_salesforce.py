@@ -1,6 +1,5 @@
 """Phase 7 — Salesforce RevOps webhook receiver + OAuth refresh."""
 
-import uuid
 
 import pytest
 from sqlalchemy import select

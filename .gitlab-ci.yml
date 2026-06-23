@@ -1,0 +1,71 @@
+# Meridian CI (Phase 8 — security stages).
+#
+# This file currently implements the two SECURITY-hardening CI stages:
+#   - secret_scan : detect-secrets against the committed baseline
+#   - security    : pip-audit (backend) + npm audit (frontend)
+#
+# The lint / test / eval-gate stages (Phase 8 → CI/K8s/Load) are added when that
+# TODO item is done; their stage names are pre-declared below so they slot in
+# without reordering.
+
+stages:
+  - secret_scan
+  - security
+  # - lint        # (deferred) ruff + mypy
+  # - test        # (deferred) pytest
+  # - eval-gate   # (deferred) offline RAGAS harness vs README baseline
+
+default:
+  image: python:3.13-slim
+
+# ---------------------------------------------------------------------------
+# Secret scanning — fails the pipeline if a secret outside the baseline appears.
+# Mirrors the local pre-commit hook (.pre-commit-config.yaml) so what blocks a
+# commit also blocks CI.
+# ---------------------------------------------------------------------------
+secret_scan:
+  stage: secret_scan
+  before_script:
+    - pip install --no-cache-dir detect-secrets==1.5.0
+  script:
+    # Scan the working tree and diff against the baseline. A new (unbaselined)
+    # secret makes `audit --report --fail-on-unaudited` exit non-zero.
+    - detect-secrets scan --baseline .secrets.baseline
+    - git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
+
+# ---------------------------------------------------------------------------
+# Dependency audits — backend (pip-audit) + frontend (npm audit).
+# ---------------------------------------------------------------------------
+pip_audit:
+  stage: security
+  before_script:
+    - pip install --no-cache-dir -e .
+    - pip install --no-cache-dir pip-audit
+  script:
+    # Install the project, then audit the resolved environment.
+    # --strict fails the stage on any known CVE EXCEPT the documented, fix-less
+    # exceptions below. A new vuln, or a fix shipping for one of these, turns the
+    # stage red again. Rationale for each exception lives in SECURITY.md.
+    #
+    #   CVE-2025-3000  torch     torch.jit.script memory corruption (local-only).
+    #                            We use torch for embeddings only; never call jit.script.
+    #   CVE-2026-6587  ragas     SSRF in the multi_modal_faithfulness metric.
+    #                            We use the 4 text metrics only; that path is dormant.
+    #   CVE-2025-69872 diskcache pickle RCE needing write access to the cache dir.
+    #                            Transitive; container runs non-root, no FS write surface.
+    # All three: no patched release exists (already on latest). Re-audit when one ships.
+    - >-
+      pip-audit --strict --desc
+      --ignore-vuln CVE-2025-3000
+      --ignore-vuln CVE-2026-6587
+      --ignore-vuln CVE-2025-69872
+
+npm_audit:
+  stage: security
+  image: node:22-slim
+  before_script:
+    - cd frontend
+    - npm ci
+  script:
+    # Fail only on high/critical advisories (matches the TODO acceptance criterion).
+    - npm audit --audit-level=high

@@ -30,6 +30,7 @@ def _get_llm() -> ChatAnthropic:
             model=settings.ANTHROPIC_ANALYSIS_MODEL,
             api_key=settings.ANTHROPIC_API_KEY,
             max_tokens=1024,
+            max_retries=settings.LLM_MAX_RETRIES,  # backoff on 429/5xx
         )
     return _llm
 

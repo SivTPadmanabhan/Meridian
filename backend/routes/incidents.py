@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.session import AsyncSessionLocal, get_db
+from backend.ratelimit import approve_limit, limiter
 from backend.models.agent_run import AgentRun
 from backend.models.eval_result import EvalResult
 from backend.models.incident import Incident
@@ -180,7 +181,10 @@ class ApprovalResponse(BaseModel):
 
 
 @router.post("/{incident_id}/approve", response_model=ApprovalResponse)
-async def approve_incident(incident_id: uuid.UUID, body: ApprovalRequest) -> ApprovalResponse:
+@limiter.limit(approve_limit)
+async def approve_incident(
+    request: Request, incident_id: uuid.UUID, body: ApprovalRequest
+) -> ApprovalResponse:
     """Approve or dismiss a pending proposal (shared service with the Slack path)."""
     try:
         await apply_decision(incident_id, body.decision)

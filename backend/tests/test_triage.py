@@ -5,7 +5,6 @@ import pytest
 from backend.agents import triage
 from backend.agents.graph import route_after_triage
 from backend.agents.triage import TriageClassification, triage_node
-from backend.config import settings
 
 
 def _state(severity: str, confidence: float, error: str | None = None) -> dict:

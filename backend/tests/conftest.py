@@ -5,7 +5,6 @@ The schema must already be migrated (`alembic upgrade head`).
 """
 
 import httpx
-import pytest
 import pytest_asyncio
 from sqlalchemy import text
 

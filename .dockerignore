@@ -1,0 +1,15 @@
+# Keep the build context small + secrets out of the image.
+.venv/
+venv/
+**/__pycache__/
+*.pyc
+.git/
+.env
+frontend/
+backend-java/
+k8s/
+htmlcov/
+.pytest_cache/
+.secrets.baseline
+*.md
+docs/

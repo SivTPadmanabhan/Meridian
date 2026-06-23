@@ -57,6 +57,7 @@ def _get_llm() -> ChatAnthropic:
             model=settings.ANTHROPIC_ANALYSIS_MODEL,
             api_key=settings.ANTHROPIC_API_KEY,
             max_tokens=1024,
+            max_retries=settings.LLM_MAX_RETRIES,  # backoff on 429/5xx
         )
     return _llm
 
@@ -136,7 +137,11 @@ async def run(pairs: list[dict] | None = None, *, store: bool = True) -> list[di
     if pairs is None:
         pairs = load_ground_truth()
     judge = LangchainLLMWrapper(
-        ChatOpenAI(model=settings.OPENAI_JUDGE_MODEL, api_key=settings.OPENAI_API_KEY)
+        ChatOpenAI(
+            model=settings.OPENAI_JUDGE_MODEL,
+            api_key=settings.OPENAI_API_KEY,
+            max_retries=settings.LLM_MAX_RETRIES,
+        )
     )
     stored: list[dict] = []
     for index, pair in enumerate(pairs):

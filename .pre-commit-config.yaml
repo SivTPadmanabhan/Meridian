@@ -1,0 +1,18 @@
+# Pre-commit hooks (Phase 8 — security hardening).
+# Secret scanning runs locally on every commit AND as a CI stage (.gitlab-ci.yml).
+# Install once: `pre-commit install`.  Run on demand: `pre-commit run --all-files`.
+repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Detect hardcoded secrets
+        args: ["--baseline", ".secrets.baseline"]
+        # Dev-only literals (docker-compose passwords, all-zero encryption key) are
+        # captured in .secrets.baseline; the hook only fails on NEW, unbaselined secrets.
+        exclude: |
+          (?x)^(
+            \.secrets\.baseline|
+            frontend/package-lock\.json|
+            .*/node_modules/.*
+          )$
