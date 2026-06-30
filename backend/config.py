@@ -4,6 +4,8 @@ This module is the ONLY place in the codebase that reads environment variables.
 Everything else imports the ``settings`` singleton. No ``os.environ`` elsewhere.
 """
 
+import os
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,3 +107,27 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _export_langfuse_env() -> None:
+    """Publish Langfuse credentials from settings into ``os.environ``.
+
+    The Langfuse SDK v3 ``CallbackHandler`` reads ``LANGFUSE_PUBLIC_KEY`` /
+    ``LANGFUSE_SECRET_KEY`` / ``LANGFUSE_HOST`` directly from ``os.environ`` and
+    self-disables if they are absent. Pydantic-settings loads ``.env`` into the
+    ``settings`` object but NOT into ``os.environ``, so without this bridge the
+    SDK never sees the keys and tracing is silently off. config.py stays the
+    single env chokepoint — it merely re-publishes what it already loaded.
+    Only non-empty values are set, so an externally-provided env var is never
+    clobbered with a blank default.
+    """
+    for name, value in (
+        ("LANGFUSE_PUBLIC_KEY", settings.LANGFUSE_PUBLIC_KEY),
+        ("LANGFUSE_SECRET_KEY", settings.LANGFUSE_SECRET_KEY),
+        ("LANGFUSE_HOST", settings.LANGFUSE_HOST),
+    ):
+        if value:
+            os.environ.setdefault(name, value)
+
+
+_export_langfuse_env()

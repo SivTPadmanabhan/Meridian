@@ -135,6 +135,21 @@ services:
       <<: *langfuse-env
       NEXTAUTH_URL: http://localhost:3000
       NEXTAUTH_SECRET: meridian-dev-nextauth-secret
+      # Headless bootstrap (Langfuse v3): on first boot with an empty DB this
+      # provisions an org + project + admin user whose API keys are exactly the
+      # ones in .env, so LANGFUSE_PUBLIC_KEY/SECRET_KEY become valid without any
+      # UI click-through. Keys are interpolated from .env (gitignored) — never
+      # hardcoded here. Init is a no-op once the project already exists, so it is
+      # safe to leave in place and reproducible if the volume is ever reset.
+      LANGFUSE_INIT_ORG_ID: meridian-org
+      LANGFUSE_INIT_ORG_NAME: Meridian
+      LANGFUSE_INIT_PROJECT_ID: meridian
+      LANGFUSE_INIT_PROJECT_NAME: meridian
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-admin@meridian.local}
+      LANGFUSE_INIT_USER_NAME: Meridian Admin
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-meridian-dev-pw}
 
   # Phase 8 — the Meridian backend, built non-root (see Dockerfile).
   # Only port 8000 is published; it reaches postgres/redis/langfuse over the
