@@ -8,6 +8,32 @@ Multi-agent enterprise operations intelligence platform. See `PRODUCT.md` for vi
 Phases 0–4 implemented (foundation, ingest, triage, analysis+action, online eval, offline
 harness). The full graph runs `triage → analysis → action → eval → END`.
 
+## Local development
+
+### Heads-up: `docker compose down -v` wipes stateful data
+
+The `-v` flag deletes the Docker **volumes**, which destroys two things the app depends on and
+that are **not** rebuilt automatically on the next `docker compose up`:
+
+1. **Langfuse org/project/API keys** — the Postgres `langfuse` database is emptied, so the
+   `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` in `.env` become orphaned and every traced LLM
+   call 401s. The `LANGFUSE_INIT_*` vars on the `langfuse-web` service re-provision a project from
+   those same `.env` keys, but only when `langfuse-web` (re)starts against the empty DB:
+   ```
+   docker compose up -d --force-recreate langfuse-web
+   ```
+   Verify with `Langfuse().auth_check()` returning `True` before expecting traces.
+
+2. **The RAG store (`document_chunks`)** — analysis loses its grounding context, which tanks the
+   online-eval `faithfulness` score (and inflates `hallucination_rate = 1 − faithfulness`).
+   Re-seed it:
+   ```
+   python -m backend.rag.ingest --seed
+   ```
+
+A plain `docker compose down` (no `-v`) keeps the volumes and needs neither step. Only `-v`
+— or deleting the named volumes manually — triggers the re-bootstrap + re-seed.
+
 ## Eval baselines (offline RAGAS harness)
 
 **Not yet recorded — pending a live judged run.** The offline harness (`backend/eval/harness.py`)
