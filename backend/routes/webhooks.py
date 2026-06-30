@@ -31,6 +31,7 @@ from backend.integrations.salesforce import parse_salesforce_event
 from backend.integrations.slack import (
     APPROVE_ACTION_ID,
     DISMISS_ACTION_ID,
+    post_decision_feedback,
     verify_slack_signature,
 )
 from backend.models.agent_run import AgentRun
@@ -265,7 +266,8 @@ async def slack_actions(request: Request) -> dict:
     payload_raw = parse_qs(body.decode("utf-8")).get("payload", [None])[0]
     if not payload_raw:
         return {"status": "ignored"}
-    actions = (json.loads(payload_raw).get("actions")) or []
+    payload = json.loads(payload_raw)
+    actions = payload.get("actions") or []
     if not actions:
         return {"status": "ignored"}
 
@@ -275,6 +277,17 @@ async def slack_actions(request: Request) -> dict:
     if decision and incident_id:
         try:
             await apply_decision(uuid.UUID(incident_id), decision)  # type: ignore[arg-type]
+            # Reflect the decision back into the channel: replace the original
+            # alert (buttons gone, decision banner shown). Non-fatal — the
+            # decision is already committed if this update fails.
+            response_url = payload.get("response_url")
+            if response_url:
+                await post_decision_feedback(
+                    response_url,
+                    (payload.get("message") or {}).get("blocks") or [],
+                    decision,
+                    (payload.get("user") or {}).get("id"),
+                )
         except (IncidentNotFound, NotPending):
             logger.warning("slack action on non-actionable incident %s", incident_id)
         except Exception:

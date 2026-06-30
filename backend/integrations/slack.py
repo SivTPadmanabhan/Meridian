@@ -16,6 +16,7 @@ import logging
 import time
 
 from slack_sdk.web.async_client import AsyncWebClient
+from slack_sdk.webhook.async_client import AsyncWebhookClient
 
 from backend.config import settings
 from backend.models.agent_run import AgentRun
@@ -92,6 +93,44 @@ def build_alert_message(run: AgentRun, incident: Incident) -> dict:
         }
     )
     return {"blocks": blocks, "text": f"{severity} incident: {incident.title}"}
+
+
+def build_decision_feedback(
+    original_blocks: list[dict], decision: str, user_id: str | None
+) -> dict:
+    """Rebuild an alert after a decision: drop the Approve/Dismiss buttons and
+    append a banner showing the outcome and who decided. Used to replace the
+    original Slack message via its ``response_url`` so a click gives visible
+    feedback (AD-1 stays a DB update; this only reflects it back to the channel).
+    """
+    verb = "Approved" if decision == "approved" else "Dismissed"
+    icon = "✅" if decision == "approved" else "🚫"
+    who = f" by <@{user_id}>" if user_id else ""
+    when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
+    kept = [b for b in original_blocks if b.get("type") != "actions"]
+    kept.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"{icon} *{verb}*{who} · {when}"}],
+        }
+    )
+    return {"blocks": kept, "text": f"Incident {decision}"}
+
+
+async def post_decision_feedback(
+    response_url: str, original_blocks: list[dict], decision: str, user_id: str | None
+) -> bool:
+    """Replace the original Slack alert with a decision banner via ``response_url``.
+
+    ``response_url`` is a short-lived, signed callback Slack hands us with each
+    interaction — it needs no bot scope. Returns whether Slack accepted the
+    update; callers treat failure as non-fatal (the decision is already stored).
+    """
+    message = build_decision_feedback(original_blocks, decision, user_id)
+    resp = await AsyncWebhookClient(response_url).send(
+        replace_original=True, text=message["text"], blocks=message["blocks"]
+    )
+    return resp.status_code == 200
 
 
 async def send_alert(message: dict) -> str | None:

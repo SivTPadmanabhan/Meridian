@@ -20,6 +20,7 @@ from backend.integrations.slack import (
     APPROVE_ACTION_ID,
     DISMISS_ACTION_ID,
     build_alert_message,
+    build_decision_feedback,
 )
 from backend.models.agent_run import AgentRun
 from backend.models.event import Event
@@ -62,6 +63,33 @@ def test_build_alert_message_has_text_blocks_and_two_buttons() -> None:
     # The proposal and root cause made it into the rendered sections.
     rendered = json.dumps(message["blocks"])
     assert "Pin the SDK" in rendered and "payment SDK timeout" in rendered
+
+
+def test_build_decision_feedback_drops_buttons_and_adds_banner() -> None:
+    incident = _incident()
+    original = build_alert_message(_run(incident.id), incident)["blocks"]
+    assert any(b["type"] == "actions" for b in original)  # precondition
+
+    feedback = build_decision_feedback(original, "approved", "U123")
+
+    # buttons removed
+    assert not any(b["type"] == "actions" for b in feedback["blocks"])
+    # banner present, mentions the decider, reflects the outcome
+    banner = feedback["blocks"][-1]
+    assert banner["type"] == "context"
+    text = banner["elements"][0]["text"]
+    assert "Approved" in text and "<@U123>" in text
+    assert feedback["text"] == "Incident approved"
+
+
+def test_build_decision_feedback_dismissed_without_user() -> None:
+    incident = _incident()
+    original = build_alert_message(_run(incident.id), incident)["blocks"]
+
+    feedback = build_decision_feedback(original, "dismissed", None)
+
+    banner_text = feedback["blocks"][-1]["elements"][0]["text"]
+    assert "Dismissed" in banner_text and "<@" not in banner_text  # no mention when no user
 
 
 # --------------------------------------------------------------------------- #
