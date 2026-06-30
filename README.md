@@ -5,8 +5,19 @@ Multi-agent enterprise operations intelligence platform. See `PRODUCT.md` for vi
 
 ## Status
 
-Phases 0–4 implemented (foundation, ingest, triage, analysis+action, online eval, offline
-harness). The full graph runs `triage → analysis → action → eval → END`.
+Phases 0–8 implemented (foundation, ingest, triage, analysis+action, online eval, offline
+harness, Slack approval, Next.js dashboard, extended integrations, production hardening). The
+full graph runs `triage → analysis → action → eval → END`.
+
+**Live-verified end to end (2026-06-30)** with real API keys: GitHub webhook (via ngrok) →
+triage→analysis→action→eval, Langfuse traces (`triage.classify`, `analysis.retrieve`,
+`analysis.reason`, `action.propose`, `eval.score`), online RAGAS scoring, and the Slack approval
+round-trip — alert posts to the channel, and real Approve/Dismiss clicks flip the DB rows and
+update the message in place.
+
+**Still open** (Phase 4.6 + Phase 8 CI/K8s/Load): the offline RAGAS harness run + recorded
+baselines (table below), the per-incident cost check in Langfuse, and `.gitlab-ci.yml` /
+`k8s` Deployment+Service+HPA / Helm / k6 load test. See `TODO.md` for the authoritative list.
 
 ## Local development
 
